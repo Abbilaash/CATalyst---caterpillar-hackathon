@@ -5,16 +5,16 @@ from google import genai
 from PIL import Image
 import io
 
-import os
+from app.core.config import settings
 
 router = APIRouter()
 
-API_KEY = os.getenv("GEMINI_API_KEY")
+API_KEY = settings.GEMINI_API_KEY
 if not API_KEY:
     print("WARNING: GEMINI_API_KEY is not set in the environment variables.")
 
 # Using client with env api key
-client = genai.Client(api_key=API_KEY)
+client = genai.Client(api_key=API_KEY) if API_KEY else None
 
 PROMPT = """
 You are an expert heavy equipment inspector.
@@ -66,6 +66,9 @@ async def analyze_images(
     before_image: UploadFile = File(...),
     after_image: UploadFile = File(...)
 ):
+    if not client:
+        raise HTTPException(status_code=500, detail="Gemini API Key is not configured. Please set GEMINI_API_KEY in .env")
+
     try:
         # Read the images into memory
         before_bytes = await before_image.read()
