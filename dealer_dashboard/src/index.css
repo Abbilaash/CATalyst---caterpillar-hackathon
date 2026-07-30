@@ -1,0 +1,52 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap');
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  html, body, #root {
+    height: 100%;
+  }
+  body {
+    @apply bg-ink-800 text-ink-50 font-sans antialiased;
+    font-feature-settings: "cv02", "cv03", "cv04", "cv11";
+  }
+  ::selection {
+    @apply bg-cat-yellow/30 text-white;
+  }
+}
+
+@layer components {
+  .card {
+    @apply bg-ink-600 rounded-xl2 shadow-card border border-white/[0.04];
+  }
+  .card-hover {
+    @apply transition-all duration-300 hover:shadow-card-hover hover:border-white/[0.08] hover:-translate-y-0.5;
+  }
+  .glass {
+    @apply bg-ink-700/80 backdrop-blur-xl border border-white/[0.06];
+  }
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: #3A3F47 transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar { width: 6px; height: 6px; }
+  .scrollbar-thin::-webkit-scrollbar-thumb { background: #3A3F47; border-radius: 999px; }
+  .scrollbar-thin::-webkit-scrollbar-track { background: transparent; }
+
+  .skeleton {
+    @apply relative overflow-hidden bg-ink-500/60 rounded-lg;
+  }
+  .skeleton::after {
+    @apply absolute inset-0 -translate-x-full animate-shimmer;
+    content: '';
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,0.05), transparent);
+  }
+  .grid-bg {
+    background-image:
+      linear-gradient(rgba(255,255,255,0.025) 1px, transparent 1px),
+      linear-gradient(90deg, rgba(255,255,255,0.025) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+}
