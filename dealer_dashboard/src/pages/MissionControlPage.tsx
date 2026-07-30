@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { PageContainer } from '@/components/ui/Page';
 import { ExecutiveBrief } from '@/components/mission/ExecutiveBrief';
 import { KPICard } from '@/components/mission/KPICard';
@@ -5,14 +6,40 @@ import { DecisionCenterSection } from '@/components/mission/RecommendationCard';
 import { FleetStatusTable } from '@/components/mission/FleetStatusTable';
 import { ActivityTimeline } from '@/components/mission/ActivityTimeline';
 import { DemandForecastChart } from '@/components/mission/DemandForecastChart';
-import { KPIs, recommendations } from '@/data/mock';
+import { fetchKPIs, fetchRecommendations, fetchBrief } from '@/services/api';
+import { Loader2 } from 'lucide-react';
 
 export function MissionControlPage() {
-  const k = KPIs;
+  const [k, setK] = useState<any>(null);
+  const [recs, setRecs] = useState<any[]>([]);
+  const [brief, setBrief] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [kpiData, recData, briefData] = await Promise.all([fetchKPIs(), fetchRecommendations(), fetchBrief()]);
+        setK(kpiData);
+        setRecs(recData);
+        setBrief(briefData);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
+  if (loading) return (
+    <PageContainer title="Mission Control">
+      <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+    </PageContainer>
+  );
   return (
     <PageContainer title="Mission Control">
       <div className="space-y-6">
-        <ExecutiveBrief />
+        <ExecutiveBrief brief={brief} />
 
         <div className="grid grid-cols-2 gap-4 md:grid-cols-3 xl:grid-cols-6">
           <KPICard label="Fleet Utilization" value={k.fleetUtilization.value} suffix="%" decimals={1} delta={k.fleetUtilization.delta} trend={k.fleetUtilization.trend} delay={0} accent />
@@ -23,7 +50,7 @@ export function MissionControlPage() {
           <KPICard label="Safety Alerts" value={k.safetyAlerts.value} delta={k.safetyAlerts.delta} trend={k.safetyAlerts.trend} delay={0.25} />
         </div>
 
-        <DecisionCenterSection recs={recommendations} limit={3} />
+        <DecisionCenterSection recs={recs} limit={3} />
 
         <div className="grid grid-cols-1 gap-6 xl:grid-cols-3">
           <div className="xl:col-span-2">

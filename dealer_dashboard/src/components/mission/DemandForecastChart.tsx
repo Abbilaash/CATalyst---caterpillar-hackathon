@@ -8,8 +8,9 @@ import {
   ResponsiveContainer,
   Legend,
 } from 'recharts';
-import { TrendingUp } from 'lucide-react';
-import { demandForecast } from '@/data/mock';
+import { TrendingUp, Loader2 } from 'lucide-react';
+import { fetchTrends } from '@/services/api';
+import { useEffect, useState } from 'react';
 
 const tooltipStyle = {
   backgroundColor: '#1B1D20',
@@ -20,6 +21,23 @@ const tooltipStyle = {
 };
 
 export function DemandForecastChart() {
+  const [demandForecast, setDemandForecast] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const trends = await fetchTrends();
+        setDemandForecast(trends.demandForecast || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <div className="card p-5">
       <div className="mb-4 flex items-center justify-between">
@@ -47,7 +65,12 @@ export function DemandForecastChart() {
         </div>
       </div>
       <div className="h-[260px] w-full">
-        <ResponsiveContainer width="100%" height="100%">
+        {loading ? (
+          <div className="flex h-full items-center justify-center">
+            <Loader2 className="h-6 w-6 animate-spin text-cat-yellow" />
+          </div>
+        ) : (
+          <ResponsiveContainer width="100%" height="100%">
           <AreaChart data={demandForecast} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
               {[
@@ -72,6 +95,7 @@ export function DemandForecastChart() {
             <Area type="monotone" dataKey="Graders" stroke="#F59E0B" strokeWidth={2} fill="url(#grad-Graders)" />
           </AreaChart>
         </ResponsiveContainer>
+        )}
       </div>
     </div>
   );

@@ -1,11 +1,12 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
 import {
-  FileText, DollarSign, AlertTriangle, Clock, Activity, Download, FileSpreadsheet, FileBarChart,
+  FileText, DollarSign, AlertTriangle, Clock, Activity, Download, FileSpreadsheet, FileBarChart, Loader2
 } from 'lucide-react';
-import { revenueTrend, downtimeData, idleAnalysis, utilizationTrend } from '@/data/mock';
+import { fetchTrends } from '@/services/api';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
@@ -16,10 +17,30 @@ const tooltipStyle = {
 };
 
 export function ReportsPage() {
+  const [trends, setTrends] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchTrends();
+        setTrends(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <PageContainer title="Reports">
       <PageHeader title="Reports" subtitle="Generate and export operational reports across your fleet." />
-
+      {loading ? (
+        <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+      ) : (
+      <>
       {/* Report cards */}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
         <ReportCard icon={<DollarSign className="h-5 w-5" />} title="Revenue Report" desc="Rental revenue by site, category, and period" tone="cat" delay={0} />
@@ -31,7 +52,7 @@ export function ReportsPage() {
       {/* Charts */}
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ChartCard title="Revenue (Monthly, $K)" subtitle="Actual vs target" delay={0}>
-          <BarChart data={revenueTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={trends?.revenueTrend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis dataKey="month" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -43,7 +64,7 @@ export function ReportsPage() {
         </ChartCard>
 
         <ChartCard title="Downtime (Hours)" subtitle="Scheduled vs unplanned by week" delay={0.06}>
-          <BarChart data={downtimeData} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={trends?.downtimeData || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis dataKey="week" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -55,7 +76,7 @@ export function ReportsPage() {
         </ChartCard>
 
         <ChartCard title="Idle Analysis" subtitle="Idle hours by equipment category" delay={0.12}>
-          <BarChart data={idleAnalysis} layout="vertical" margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
+          <BarChart data={trends?.idleAnalysis || []} layout="vertical" margin={{ top: 10, right: 10, left: 20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" horizontal={false} />
             <XAxis type="number" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis dataKey="category" type="category" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
@@ -65,7 +86,7 @@ export function ReportsPage() {
         </ChartCard>
 
         <ChartCard title="Utilization" subtitle="Weekly utilization %" delay={0.18}>
-          <BarChart data={utilizationTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={trends?.utilizationTrend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis dataKey="week" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -106,6 +127,8 @@ export function ReportsPage() {
           </Button>
         </div>
       </motion.div>
+      </>
+      )}
     </PageContainer>
   );
 }

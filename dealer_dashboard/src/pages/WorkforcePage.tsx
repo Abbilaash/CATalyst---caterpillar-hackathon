@@ -1,17 +1,38 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Trophy, Shield, Zap, Clock, AlertCircle, HardHat } from 'lucide-react';
-import { operators } from '@/data/mock';
+import { Trophy, Shield, Zap, Clock, AlertCircle, HardHat, Loader2 } from 'lucide-react';
+import { fetchOperators } from '@/services/api';
 import { Badge } from '@/components/ui/Badge';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
 
 export function WorkforcePage() {
+  const [operators, setOperators] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchOperators();
+        setOperators(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   const top3 = operators.slice(0, 3);
   const rest = operators.slice(3);
 
   return (
     <PageContainer title="Workforce">
       <PageHeader title="Workforce" subtitle="Operator performance, safety, and efficiency leaderboard." />
-
+      {loading ? (
+        <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+      ) : (
+      <>
       {/* Podium */}
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-3">
         {top3.map((o, i) => (
@@ -125,6 +146,8 @@ export function WorkforcePage() {
           </table>
         </div>
       </div>
+      </>
+      )}
     </PageContainer>
   );
 }

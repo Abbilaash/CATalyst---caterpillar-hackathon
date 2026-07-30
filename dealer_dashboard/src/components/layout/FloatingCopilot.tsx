@@ -1,7 +1,7 @@
 import { useState, useRef, useEffect } from 'react';
 import { AnimatePresence, motion } from 'framer-motion';
 import { Bot, X, Send, Sparkles, ArrowUpRight } from 'lucide-react';
-import { copilotSuggestions, copilotMockReply } from '@/data/mock';
+import { askCopilot } from '@/services/api';
 
 interface Msg {
   role: 'user' | 'ai';
@@ -21,15 +21,20 @@ export function FloatingCopilot() {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: 'smooth' });
   }, [messages, typing]);
 
-  const send = (text: string) => {
+  const send = async (text: string) => {
     if (!text.trim()) return;
     setMessages((m) => [...m, { role: 'user', text }]);
     setInput('');
     setTyping(true);
-    setTimeout(() => {
-      setMessages((m) => [...m, { role: 'ai', text: copilotMockReply(text) }]);
+    
+    try {
+      const reply = await askCopilot(text);
+      setMessages((m) => [...m, { role: 'ai', text: reply }]);
+    } catch (e) {
+      setMessages((m) => [...m, { role: 'ai', text: "Sorry, I'm having trouble connecting to the network." }]);
+    } finally {
       setTyping(false);
-    }, 900);
+    }
   };
 
   return (
@@ -120,7 +125,12 @@ export function FloatingCopilot() {
                   Suggested prompts
                 </div>
                 <div className="grid grid-cols-1 gap-1.5">
-                  {copilotSuggestions.map((s) => (
+                  {[
+                    'Which assets are wasting money?',
+                    'Recommend relocations.',
+                    "Summarize today's fleet.",
+                    'Which rentals expire tomorrow?',
+                  ].map((s) => (
                     <button
                       key={s}
                       onClick={() => send(s)}

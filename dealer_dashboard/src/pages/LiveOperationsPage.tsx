@@ -1,7 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
-import { Radio, Layers, Maximize2, Filter } from 'lucide-react';
-import { mapMarkers } from '@/data/mock';
+import { Radio, Layers, Maximize2, Filter, Loader2 } from 'lucide-react';
+import { fetchMapMarkers } from '@/services/api';
 import { Badge } from '@/components/ui/Badge';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
 
@@ -15,6 +15,22 @@ const statusConfig = {
 export function LiveOperationsPage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [filter, setFilter] = useState<string>('all');
+  const [mapMarkers, setMapMarkers] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchMapMarkers();
+        setMapMarkers(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
 
   const markers = filter === 'all' ? mapMarkers : mapMarkers.filter((m) => m.status === filter);
   const counts = {
@@ -38,7 +54,10 @@ export function LiveOperationsPage() {
           </div>
         }
       />
-
+      {loading ? (
+        <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+      ) : (
+      <>
       <div className="mb-4 flex items-center gap-2 overflow-x-auto scrollbar-thin">
         <Filter className="h-4 w-4 shrink-0 text-ink-200" />
         {[
@@ -204,6 +223,8 @@ export function LiveOperationsPage() {
           </div>
         </div>
       </div>
+      </>
+      )}
     </PageContainer>
   );
 }

@@ -1,10 +1,9 @@
 import { motion } from 'framer-motion';
 import { Sparkles, TrendingUp, ArrowRight } from 'lucide-react';
-import { executiveBrief } from '@/data/mock';
 import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 
-export function ExecutiveBrief() {
-  const b = executiveBrief;
+export function ExecutiveBrief({ brief }: { brief: any }) {
+  const b = brief;
   return (
     <motion.div
       initial={{ opacity: 0, y: 14 }}

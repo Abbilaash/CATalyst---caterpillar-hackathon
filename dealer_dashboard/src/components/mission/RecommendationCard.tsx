@@ -1,9 +1,21 @@
 import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Check, X, Sparkles, TrendingUp, ArrowRight, Brain } from 'lucide-react';
-import type { Recommendation } from '@/data/mock';
+
 import { Badge, priorityTone } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
+
+export interface Recommendation {
+  id: string;
+  equipment: string;
+  equipmentId: string;
+  recommendation: string;
+  reason: string;
+  savings: number;
+  confidence: number;
+  priority: 'high' | 'medium' | 'low';
+  category: 'Relocation' | 'Maintenance' | 'Rental' | 'Utilization';
+}
 
 export function RecommendationCard({
   rec,
