@@ -37,6 +37,7 @@ export default function ManagerScheduling() {
   const [rentedAssets, setRentedAssets] = useState<any[]>([]);
   const [assignments, setAssignments] = useState<any[]>([]);
   const [queuedTasks, setQueuedTasks] = useState<any[]>([]);
+  const [interruptedTasks, setInterruptedTasks] = useState<any[]>([]);
   
   const [modalVisible, setModalVisible] = useState(false);
   const [autoModalVisible, setAutoModalVisible] = useState(false);
@@ -99,6 +100,20 @@ export default function ManagerScheduling() {
       }
     } catch (e) {
       console.warn("Failed to load queue backlog", e);
+    }
+  };
+
+  // Fetch interrupted assignments for this manager
+  const loadInterrupted = async () => {
+    try {
+      const resolvedManagerId = managerId || 'mgr-01';
+      const res = await fetch(`${API_BASE_URL}/api/v1/manager/operations/interrupted/${resolvedManagerId}`);
+      if (res.ok) {
+        const data = await res.json();
+        setInterruptedTasks(data || []);
+      }
+    } catch (e) {
+      console.warn("Failed to load interrupted assignments", e);
     }
   };
 
@@ -175,6 +190,7 @@ export default function ManagerScheduling() {
         }
       }
       await loadQueue();
+      await loadInterrupted();
     } catch (err) {
       console.warn('Backend connection failed, scheduling dashboard offline.', err);
     } finally {
@@ -186,8 +202,10 @@ export default function ManagerScheduling() {
     loadData();
   }, [managerId]);
 
-  // Global assets view (Shows all manager's rented assets across all pages)
-  const siteAssets = rentedAssets;
+  // Gantt shows only assets belonging to the currently selected site
+  const siteAssets = useMemo(() => {
+    return rentedAssets.filter(a => a.siteId === activeSiteId);
+  }, [rentedAssets, activeSiteId]);
 
   const siteOperators = useMemo(() => {
     return allOperators.filter(op => {
@@ -329,6 +347,7 @@ export default function ManagerScheduling() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           manager_id: resolvedManagerId,
+          site_id: activeSiteId,
           tasks: batchTasks,
           strategy: strategy
         })
@@ -464,6 +483,43 @@ export default function ManagerScheduling() {
       }
     } catch (err) {
       Alert.alert('Error', 'Could not connect to queue API.');
+    }
+  };
+
+  // Resume an interrupted assignment (re-queue for scheduling)
+  const handleResumeInterrupted = async (interruptId: string, jobTitle: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/manager/operations/interrupted/${interruptId}/resume`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        Alert.alert('Resumed', `"${jobTitle}" has been re-queued for scheduling.`);
+        await loadInterrupted();
+        await loadQueue();
+        await loadData();
+      } else {
+        Alert.alert('Error', 'Failed to resume interrupted task.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not connect to server.');
+    }
+  };
+
+  // Cancel an interrupted assignment
+  const handleCancelInterrupted = async (interruptId: string, jobTitle: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/manager/operations/interrupted/${interruptId}/cancel`, {
+        method: 'POST'
+      });
+      if (res.ok) {
+        Alert.alert('Cancelled', `"${jobTitle}" has been cancelled.`);
+        await loadInterrupted();
+        await loadData();
+      } else {
+        Alert.alert('Error', 'Failed to cancel interrupted task.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Could not connect to server.');
     }
   };
 
@@ -656,6 +712,54 @@ export default function ManagerScheduling() {
               )}
             </View>
           </Card>
+
+          {/* Interrupted Assignments Panel */}
+          {interruptedTasks.length > 0 && (
+            <Card style={[styles.card, { borderColor: '#FF6B35', borderWidth: 1.5 }]}>
+              <View style={styles.cardHeader}>
+                <View style={{ flex: 1 }}>
+                  <Text style={[styles.cardTitle, { color: '#FF6B35' }]}>⚠ Interrupted Assignments ({interruptedTasks.length})</Text>
+                  <Text style={styles.cardSubtitle}>Machines stopped due to fuel outage or mechanical fault</Text>
+                </View>
+              </View>
+
+              <View style={styles.queueList}>
+                {interruptedTasks.map(intr => (
+                  <View key={intr.interrupt_id} style={[styles.queueItem, { borderLeftColor: '#FF6B35', borderLeftWidth: 3 }]}>
+                    <View style={styles.queueIconCol}>
+                      <AlertTriangle size={16} color="#FF6B35" />
+                    </View>
+                    <View style={{ flex: 1, gap: 2 }}>
+                      <Text style={[styles.queueTitleText, { color: '#FF6B35' }]}>{intr.job_title}</Text>
+                      <Text style={styles.queueDetailsText}>
+                        {intr.asset_name} · {intr.operator_name}
+                      </Text>
+                      <Text style={[styles.queueDetailsText, { color: '#FF6B35' }]}>
+                        {intr.interrupt_reason.replace('_', ' ').toUpperCase()}: {intr.interrupt_detail}
+                      </Text>
+                      <Text style={styles.queueTimeText}>
+                        Interrupted at {new Date(intr.interrupted_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                      </Text>
+                    </View>
+                    <View style={{ gap: 6 }}>
+                      <Pressable
+                        onPress={() => handleResumeInterrupted(intr.interrupt_id, intr.job_title)}
+                        style={{ backgroundColor: PALETTE.catYellow + '22', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: PALETTE.catYellow }}
+                      >
+                        <Text style={{ color: PALETTE.catYellow, fontSize: 11, fontFamily: FONT.semibold }}>Continue</Text>
+                      </Pressable>
+                      <Pressable
+                        onPress={() => handleCancelInterrupted(intr.interrupt_id, intr.job_title)}
+                        style={{ backgroundColor: PALETTE.danger + '18', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: PALETTE.danger }}
+                      >
+                        <Text style={{ color: PALETTE.danger, fontSize: 11, fontFamily: FONT.semibold }}>Cancel</Text>
+                      </Pressable>
+                    </View>
+                  </View>
+                ))}
+              </View>
+            </Card>
+          )}
 
           {/* Operator Lists */}
           <Card style={styles.card}>

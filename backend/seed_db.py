@@ -137,8 +137,29 @@ async def seed():
             );
         """))
         
+        await conn.execute(text("""
+            CREATE TABLE IF NOT EXISTS interrupted_assignments (
+                interrupt_id VARCHAR PRIMARY KEY,
+                assignment_id VARCHAR NOT NULL,
+                asset_id VARCHAR NOT NULL REFERENCES assets(asset_id),
+                operator_id VARCHAR NOT NULL,
+                manager_id VARCHAR NOT NULL,
+                job_title VARCHAR NOT NULL,
+                job_description TEXT,
+                original_start_time TIMESTAMP NOT NULL,
+                original_end_time TIMESTAMP NOT NULL,
+                interrupted_at TIMESTAMP NOT NULL DEFAULT NOW(),
+                interrupt_reason VARCHAR NOT NULL,
+                interrupt_detail TEXT,
+                status VARCHAR DEFAULT 'pending',
+                importance VARCHAR DEFAULT 'medium',
+                priority BOOLEAN DEFAULT FALSE,
+                created_at TIMESTAMP DEFAULT NOW()
+            );
+        """))
+        
         # Clear existing
-        await conn.execute(text("TRUNCATE TABLE assignments, qr_scan_logs, rental_requests, rentals, assets, sites CASCADE;"))
+        await conn.execute(text("TRUNCATE TABLE assignments, qr_scan_logs, rental_requests, rentals, assets, sites, interrupted_assignments CASCADE;"))
         
         # Insert Sites
         await conn.execute(text("""
@@ -149,19 +170,20 @@ async def seed():
         """), {"mid": str(manager_user.id)})
         
         # Insert Assets
+        # All rented assets start 'idle' (rented but no task assigned yet). eq-7 has no rental, so 'available'.
+        mid_val = str(manager_user.id)
         await conn.execute(text("""
-            INSERT INTO assets (asset_id, qr_code, rfid_tag, asset_name, equipment_type, manufacturer, model, serial_number, purchase_year, engine_type, current_site_id, current_status, total_engine_hours, fuel_capacity, last_operator) VALUES
-            ('eq-1', 'QR-320-001', 'RFID-320-001', 'CAT 320 Hydraulic Excavator',  'Excavator',      'Caterpillar', '320 GC',  'MX-320-001', 2022, 'Diesel', 'site-01', 'working',     3820.0, 400.0, :op1),
-            ('eq-2', 'QR-D6-014',  'RFID-D6-014',  'CAT D6 Dozer',                 'Dozer',          'Caterpillar', 'D6',      'MX-D6-014',  2021, 'Diesel', 'site-02', 'working',     5210.0, 500.0, :op2),
-            ('eq-3', 'QR-950-007', 'RFID-950-007', 'CAT 950 GC Wheel Loader',      'Wheel Loader',   'Caterpillar', '950 GC',  'MX-950-007', 2023, 'Diesel', 'site-01', 'idle',        2740.0, 350.0, :op3),
-            ('eq-4', 'QR-420-022', 'RFID-420-022', 'CAT 420 Backhoe Loader',       'Backhoe Loader', 'Caterpillar', '420F2',   'MX-420-022', 2022, 'Diesel', 'site-03', 'working',     1980.0, 280.0, :op4),
-            ('eq-5', 'QR-140-009', 'RFID-140-009', 'CAT 140 Motor Grader',         'Motor Grader',   'Caterpillar', '140 GC',  'MX-140-009', 2020, 'Diesel', 'site-02', 'maintenance', 6420.0, 450.0, :op5),
-            ('eq-6', 'QR-336-003', 'RFID-336-003', 'CAT 336 Hydraulic Excavator',  'Excavator',      'Caterpillar', '336 GC',  'MX-336-003', 2023, 'Diesel', 'site-01', 'working',     4110.0, 480.0, :op6),
-            ('eq-7', 'QR-966-011', 'RFID-966-011', 'CAT 966M Wheel Loader',        'Wheel Loader',   'Caterpillar', '966M',    'MX-966-011', 2024, 'Diesel', 'site-02', 'available',   980.0,  380.0, NULL),
-            ('eq-8', 'QR-D8-018',  'RFID-D8-018',  'CAT D8 Dozer',                 'Dozer',          'Caterpillar', 'D8T',     'MX-D8-018',  2019, 'Diesel', 'site-03', 'idle',        7320.0, 550.0, :op8)
+            INSERT INTO assets (asset_id, qr_code, rfid_tag, asset_name, equipment_type, manufacturer, model, serial_number, purchase_year, engine_type, current_site_id, current_status, total_engine_hours, fuel_capacity, assigned_site_manager) VALUES
+            ('eq-1', 'QR-320-001', 'RFID-320-001', 'CAT 320 Hydraulic Excavator',  'Excavator',      'Caterpillar', '320 GC',  'MX-320-001', 2022, 'Diesel', 'site-01', 'idle',      3820.0, 400.0, :mid),
+            ('eq-2', 'QR-D6-014',  'RFID-D6-014',  'CAT D6 Dozer',                 'Dozer',          'Caterpillar', 'D6',      'MX-D6-014',  2021, 'Diesel', 'site-02', 'idle',      5210.0, 500.0, :mid),
+            ('eq-3', 'QR-950-007', 'RFID-950-007', 'CAT 950 GC Wheel Loader',      'Wheel Loader',   'Caterpillar', '950 GC',  'MX-950-007', 2023, 'Diesel', 'site-01', 'idle',      2740.0, 350.0, :mid),
+            ('eq-4', 'QR-420-022', 'RFID-420-022', 'CAT 420 Backhoe Loader',       'Backhoe Loader', 'Caterpillar', '420F2',   'MX-420-022', 2022, 'Diesel', 'site-03', 'idle',      1980.0, 280.0, :mid),
+            ('eq-5', 'QR-140-009', 'RFID-140-009', 'CAT 140 Motor Grader',         'Motor Grader',   'Caterpillar', '140 GC',  'MX-140-009', 2020, 'Diesel', 'site-02', 'idle',      6420.0, 450.0, :mid),
+            ('eq-6', 'QR-336-003', 'RFID-336-003', 'CAT 336 Hydraulic Excavator',  'Excavator',      'Caterpillar', '336 GC',  'MX-336-003', 2023, 'Diesel', 'site-01', 'idle',      4110.0, 480.0, :mid),
+            ('eq-7', 'QR-966-011', 'RFID-966-011', 'CAT 966M Wheel Loader',        'Wheel Loader',   'Caterpillar', '966M',    'MX-966-011', 2024, 'Diesel', 'site-02', 'available', 980.0,  380.0, NULL),
+            ('eq-8', 'QR-D8-018',  'RFID-D8-018',  'CAT D8 Dozer',                 'Dozer',          'Caterpillar', 'D8T',     'MX-D8-018',  2019, 'Diesel', 'site-03', 'idle',      7320.0, 550.0, :mid)
         """), {
-            "op1": OP_ID["op-01"], "op2": OP_ID["op-02"], "op3": OP_ID["op-03"], "op4": OP_ID["op-04"],
-            "op5": OP_ID["op-05"], "op6": OP_ID["op-06"], "op8": OP_ID["op-08"]
+            "mid": mid_val
         })
 
         # Insert Rentals (assigned_site_manager = the manager who rented the asset)
@@ -178,20 +200,7 @@ async def seed():
             "mid": mgr_id
         })
 
-        # Insert Assignments
-        today = datetime.utcnow().strftime("%Y-%m-%d")
-        await conn.execute(text(f"""
-            INSERT INTO assignments (assignment_id, asset_id, operator_id, manager_id, job_title, job_description, start_time, end_time, assignment_status) VALUES
-            ('asgn-01', 'eq-1', :op1, :mid, 'Trench excavation - Sector B', 'Deep trench dig',      '{today} 08:00:00', '{today} 14:30:00', 'active'),
-            ('asgn-02', 'eq-2', :op2, :mid, 'Grade leveling - Pad 4',       'Level grading',        '{today} 10:00:00', '{today} 16:00:00', 'active'),
-            ('asgn-03', 'eq-4', :op4, :mid, 'Utility trenching',            'Utility installation', '{today} 08:00:00', '{today} 13:00:00', 'active'),
-            ('asgn-04', 'eq-6', :op6, :mid, 'Foundation dig - Lot 7',       'Building foundation',  '{today} 09:00:00', '{today} 15:30:00', 'active'),
-            ('asgn-05', 'eq-1', :op1, :mid, 'Berm shaping - Sector A',      'Water diversion berm', '{today} 15:00:00', '{today} 20:00:00', 'scheduled'),
-            ('asgn-06', 'eq-3', :op3, :mid, 'Stockpile loading',            'Aggregate loading',    '{today} 12:00:00', '{today} 17:00:00', 'scheduled')
-        """), {
-            "op1": OP_ID["op-01"], "op2": OP_ID["op-02"], "op3": OP_ID["op-03"],
-            "op4": OP_ID["op-04"], "op6": OP_ID["op-06"], "mid": str(manager_user.id)
-        })
+        # No pre-seeded assignments — manager adds tasks manually via the UI
 
     print("\n" + "="*50)
     print("SEEDING COMPLETE!")

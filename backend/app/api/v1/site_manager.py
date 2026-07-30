@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.db.postgres import get_db
-from app.models.postgres.core import Site, Asset, RentalRequest, Assignment, Rental, AssignmentQueue
+from app.models.postgres.core import Site, Asset, RentalRequest, Assignment, Rental, AssignmentQueue, InterruptedAssignment
 from app.schemas.workflows import RentalRequestCreate, RentalRequestResponse, AssignmentResponse
 from app.models.mongo.users import User, SiteManager, Operator
 from bson import ObjectId
@@ -179,6 +179,25 @@ class QueuedTaskResponseItem(BaseModel):
     priority: bool
     created_at: str
 
+class InterruptedAssignmentResponse(BaseModel):
+    interrupt_id: str
+    assignment_id: str
+    asset_id: str
+    asset_name: str
+    operator_id: str
+    operator_name: str
+    manager_id: str
+    job_title: str
+    job_description: Optional[str] = None
+    original_start_time: str
+    original_end_time: str
+    interrupted_at: str
+    interrupt_reason: str
+    interrupt_detail: Optional[str] = None
+    status: str
+    importance: str
+    priority: bool
+
 # --- Helper Site Manager Resolver ---
 async def get_site_manager(manager_id: str) -> Optional[SiteManager]:
     try:
@@ -198,6 +217,36 @@ async def get_manager_site_ids(manager_id: str) -> List[str]:
     if sm and sm.site_ids:
         return sm.site_ids
     return []
+
+async def update_asset_status(asset_id: str, db: AsyncSession):
+    # Check active rentals
+    rental_res = await db.execute(
+        select(Rental).where(
+            Rental.asset_id == asset_id,
+            Rental.rental_status == "active"
+        )
+    )
+    active_rental = rental_res.scalars().first()
+    
+    # Check active assignments
+    assign_res = await db.execute(
+        select(Assignment).where(
+            Assignment.asset_id == asset_id,
+            Assignment.assignment_status == "active"
+        )
+    )
+    active_assignment = assign_res.scalars().first()
+    
+    # Get the asset
+    asset_res = await db.execute(select(Asset).where(Asset.asset_id == asset_id))
+    asset = asset_res.scalar_one_or_none()
+    if asset:
+        if not active_rental:
+            asset.current_status = "available"
+        elif active_assignment:
+            asset.current_status = "working"
+        else:
+            asset.current_status = "idle"
 
 # --- Endpoints ---
 
@@ -442,12 +491,8 @@ async def complete_operation(assignment_id: str, db: AsyncSession = Depends(get_
             raise HTTPException(status_code=404, detail="Operation not found")
 
         assignment.assignment_status = "completed"
-        
-        # Free the associated asset
-        asset_res = await db.execute(select(Asset).where(Asset.asset_id == assignment.asset_id))
-        asset = asset_res.scalar_one_or_none()
-        if asset:
-            asset.current_status = "available"
+        await db.flush()
+        await update_asset_status(assignment.asset_id, db)
 
         # Mark operator available in MongoDB
         try:
@@ -648,15 +693,10 @@ async def assign_operator(assignment: SiteManagerAssignmentCreate, db: AsyncSess
         assignment_status="active"
     )
     db.add(new_assignment)
+    await db.flush()
+    await update_asset_status(assignment.asset_id, db)
     await db.commit()
     await db.refresh(new_assignment)
-    
-    # Update asset status
-    asset_res = await db.execute(select(Asset).where(Asset.asset_id == assignment.asset_id))
-    asset = asset_res.scalar_one_or_none()
-    if asset:
-        asset.current_status = "working"
-        await db.commit()
 
     # Update operator status in MongoDB
     try:
@@ -1011,13 +1051,9 @@ async def auto_assign_commit(req: AutoAssignCommitRequest, db: AsyncSession = De
             )
             next_num += 1
             db.add(new_asg)
+            await db.flush()
+            await update_asset_status(prop.asset_id, db)
             new_assignments.append(new_asg)
-            
-            # Update asset status
-            asset_res = await db.execute(select(Asset).where(Asset.asset_id == prop.asset_id))
-            asset = asset_res.scalar_one_or_none()
-            if asset:
-                asset.current_status = "working"
                 
             # Update operator status
             try:
@@ -1270,8 +1306,9 @@ async def process_assignments_queue(manager_id: str, db: AsyncSession):
                 busy_operators[selected_op_id] = []
             busy_operators[selected_op_id].append((task_start, task_end))
             
-            # Update asset status
-            selected_asset.current_status = "working"
+            # Update asset status (queued assignments, use helper)
+            await db.flush()
+            await update_asset_status(selected_asset.asset_id, db)
             
             # Update operator status
             try:
@@ -1289,3 +1326,249 @@ async def process_assignments_queue(manager_id: str, db: AsyncSession):
             await db.commit()
     except Exception as e:
         print(f"Error in queue processing daemon: {e}")
+
+
+# ==============================================================================
+# INTERRUPTED ASSIGNMENTS — list, resume, cancel, and interruption detection
+# ==============================================================================
+
+@router.get("/operations/interrupted/{manager_id}", response_model=List[InterruptedAssignmentResponse])
+async def list_interrupted(manager_id: str, db: AsyncSession = Depends(get_db)):
+    """Return all pending interrupted assignments for a manager."""
+    try:
+        resolved_mgr_id = manager_id if manager_id != "mgr-01" else None
+        if manager_id == "mgr-01":
+            sm = await get_site_manager(manager_id)
+            resolved_mgr_id = str(sm.user.ref.id) if sm else None
+
+        stmt = select(InterruptedAssignment, Asset).join(
+            Asset, InterruptedAssignment.asset_id == Asset.asset_id
+        ).where(InterruptedAssignment.status == "pending")
+        if resolved_mgr_id:
+            stmt = stmt.where(InterruptedAssignment.manager_id == resolved_mgr_id)
+        
+        result = await db.execute(stmt)
+        rows = result.all()
+        
+        # Build op_map
+        op_ids = list({r.InterruptedAssignment.operator_id for r in rows})
+        op_map: dict = {}
+        for oid in op_ids:
+            try:
+                from bson import ObjectId as BsonObjId
+                op_doc = await Operator.find_one({"user.$id": BsonObjId(oid)})
+                if op_doc:
+                    user_doc = await User.get(op_doc.user.ref.id)
+                    if user_doc:
+                        op_map[oid] = user_doc.name
+            except Exception:
+                pass
+
+        response = []
+        for row in rows:
+            intr = row.InterruptedAssignment
+            asset = row.Asset
+            response.append(InterruptedAssignmentResponse(
+                interrupt_id=intr.interrupt_id,
+                assignment_id=intr.assignment_id,
+                asset_id=intr.asset_id,
+                asset_name=asset.asset_name,
+                operator_id=intr.operator_id,
+                operator_name=op_map.get(intr.operator_id, "Operator"),
+                manager_id=intr.manager_id,
+                job_title=intr.job_title,
+                job_description=intr.job_description,
+                original_start_time=intr.original_start_time.isoformat(),
+                original_end_time=intr.original_end_time.isoformat(),
+                interrupted_at=intr.interrupted_at.isoformat(),
+                interrupt_reason=intr.interrupt_reason,
+                interrupt_detail=intr.interrupt_detail,
+                status=intr.status,
+                importance=intr.importance,
+                priority=intr.priority
+            ))
+        return response
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/operations/interrupted/{interrupt_id}/resume")
+async def resume_interrupted(interrupt_id: str, db: AsyncSession = Depends(get_db)):
+    """Resume an interrupted assignment — re-queue it for auto-scheduling."""
+    try:
+        result = await db.execute(select(InterruptedAssignment).where(
+            InterruptedAssignment.interrupt_id == interrupt_id
+        ))
+        intr = result.scalar_one_or_none()
+        if not intr:
+            raise HTTPException(status_code=404, detail="Interrupted assignment not found")
+        if intr.status != "pending":
+            raise HTTPException(status_code=400, detail="Already resumed or cancelled")
+
+        # Get asset equipment_type
+        asset_res = await db.execute(select(Asset).where(Asset.asset_id == intr.asset_id))
+        asset = asset_res.scalar_one_or_none()
+        if not asset:
+            raise HTTPException(status_code=404, detail="Asset not found")
+
+        # Add to queue for auto-scheduling
+        remaining_hours = max(
+            0.5,
+            (intr.original_end_time - intr.interrupted_at).total_seconds() / 3600
+        )
+        new_queue_task = AssignmentQueue(
+            queue_id=f"qrm-{interrupt_id[:8]}",
+            manager_id=intr.manager_id,
+            equipment_type=asset.equipment_type,
+            job_title=intr.job_title,
+            job_description=intr.job_description,
+            start_time=datetime.utcnow(),
+            end_time=datetime.utcnow() + timedelta(hours=remaining_hours),
+            total_hours=remaining_hours,
+            importance=intr.importance,
+            priority=intr.priority
+        )
+        db.add(new_queue_task)
+        intr.status = "resumed"
+        await db.commit()
+
+        # Trigger queue processing
+        await process_assignments_queue(intr.manager_id, db)
+        return {"status": "success", "message": "Interrupted task re-queued for scheduling"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/operations/interrupted/{interrupt_id}/cancel")
+async def cancel_interrupted(interrupt_id: str, db: AsyncSession = Depends(get_db)):
+    """Cancel an interrupted assignment."""
+    try:
+        result = await db.execute(select(InterruptedAssignment).where(
+            InterruptedAssignment.interrupt_id == interrupt_id
+        ))
+        intr = result.scalar_one_or_none()
+        if not intr:
+            raise HTTPException(status_code=404, detail="Interrupted assignment not found")
+        
+        intr.status = "cancelled"
+        
+        # Recalculate asset status now that there is no pending continuation
+        await update_asset_status(intr.asset_id, db)
+        await db.commit()
+        return {"status": "success", "message": "Interrupted task cancelled"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.post("/assets/check-interruptions/{manager_id}")
+async def check_interruptions(manager_id: str, db: AsyncSession = Depends(get_db)):
+    """
+    Check telemetry for active assignment assets and detect fuel/malfunction interruptions.
+    Creates an interrupted_assignment record and marks assignment as 'interrupted'.
+    """
+    try:
+        from app.models.postgres.telemetry import Telemetry, EngineEvent
+        from sqlalchemy import desc
+
+        site_ids = await get_manager_site_ids(manager_id)
+        resolved_mgr_id = manager_id
+        if manager_id == "mgr-01":
+            sm = await get_site_manager(manager_id)
+            resolved_mgr_id = str(sm.user.ref.id) if sm else manager_id
+
+        # Get all active assignments
+        active_stmt = select(Assignment, Asset).join(
+            Asset, Assignment.asset_id == Asset.asset_id
+        ).where(
+            Assignment.assignment_status == "active",
+            Assignment.manager_id == resolved_mgr_id
+        )
+        active_result = await db.execute(active_stmt)
+        active_rows = active_result.all()
+
+        interrupted_count = 0
+        for row in active_rows:
+            asgn = row.Assignment
+            asset = row.Asset
+
+            # Check if already interrupted
+            existing = await db.execute(select(InterruptedAssignment).where(
+                InterruptedAssignment.assignment_id == asgn.assignment_id,
+                InterruptedAssignment.status == "pending"
+            ))
+            if existing.scalar_one_or_none():
+                continue  # Already tracked
+
+            interrupt_reason = None
+            interrupt_detail = None
+
+            # Check latest telemetry
+            tel_result = await db.execute(
+                select(Telemetry).where(Telemetry.asset_id == asset.asset_id)
+                .order_by(desc(Telemetry.timestamp)).limit(1)
+            )
+            tel = tel_result.scalar_one_or_none()
+            if tel:
+                if tel.fuel_level is not None and tel.fuel_level < 10:
+                    interrupt_reason = "fuel_outage"
+                    interrupt_detail = f"Fuel level critically low: {tel.fuel_level:.1f}%"
+                elif tel.engine_temperature is not None and tel.engine_temperature > 110:
+                    interrupt_reason = "engine_fault"
+                    interrupt_detail = f"Engine temperature critical: {tel.engine_temperature:.1f}°C"
+                elif tel.oil_pressure is not None and tel.oil_pressure < 20:
+                    interrupt_reason = "malfunction"
+                    interrupt_detail = f"Oil pressure critically low: {tel.oil_pressure:.1f} psi"
+
+            # Check latest critical engine events
+            if not interrupt_reason:
+                evt_result = await db.execute(
+                    select(EngineEvent).where(
+                        EngineEvent.asset_id == asset.asset_id,
+                        EngineEvent.severity == "critical"
+                    ).order_by(desc(EngineEvent.timestamp)).limit(1)
+                )
+                evt = evt_result.scalar_one_or_none()
+                if evt:
+                    interrupt_reason = "critical_sensor"
+                    interrupt_detail = f"Critical engine event: {evt.event_type} = {evt.event_value}"
+
+            if interrupt_reason:
+                from uuid import uuid4
+                new_intr = InterruptedAssignment(
+                    interrupt_id=f"intr-{str(uuid4())[:8]}",
+                    assignment_id=asgn.assignment_id,
+                    asset_id=asset.asset_id,
+                    operator_id=asgn.operator_id,
+                    manager_id=resolved_mgr_id,
+                    job_title=asgn.job_title or "Unknown Task",
+                    job_description=asgn.job_description,
+                    original_start_time=asgn.start_time,
+                    original_end_time=asgn.end_time,
+                    interrupted_at=datetime.utcnow(),
+                    interrupt_reason=interrupt_reason,
+                    interrupt_detail=interrupt_detail,
+                    importance=asgn.importance or "medium",
+                    priority=asgn.priority or False
+                )
+                db.add(new_intr)
+                
+                # Mark assignment as interrupted and asset as idle
+                asgn.assignment_status = "interrupted"
+                await db.flush()
+                await update_asset_status(asset.asset_id, db)
+                interrupted_count += 1
+
+        await db.commit()
+        return {
+            "status": "success",
+            "interrupted_count": interrupted_count,
+            "message": f"Found {interrupted_count} new interruption(s)"
+        }
+    except Exception as e:
+        import traceback; traceback.print_exc()
+        raise HTTPException(status_code=500, detail=str(e))

@@ -40,7 +40,7 @@ class Asset(Base):
     last_service_date = Column(Date)
     next_service_due = Column(Date)
     image_url = Column(String)
-    last_operator = Column(String, nullable=True)
+    assigned_site_manager = Column(String, nullable=True)
     total_runtime = Column(Float, default=16.0) # Maximum runtime allowed per 24 hours
 
     current_site = relationship("Site", back_populates="assets")
@@ -131,3 +131,25 @@ class AssignmentQueue(Base):
     importance = Column(String, default="medium")
     priority = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())
+
+class InterruptedAssignment(Base):
+    __tablename__ = "interrupted_assignments"
+    
+    interrupt_id = Column(String, primary_key=True, default=generate_uuid)
+    assignment_id = Column(String, nullable=False)
+    asset_id = Column(String, ForeignKey("assets.asset_id"), nullable=False)
+    operator_id = Column(String, nullable=False)
+    manager_id = Column(String, nullable=False)
+    job_title = Column(String, nullable=False)
+    job_description = Column(Text, nullable=True)
+    original_start_time = Column(DateTime, nullable=False)
+    original_end_time = Column(DateTime, nullable=False)
+    interrupted_at = Column(DateTime, nullable=False, default=func.now())
+    interrupt_reason = Column(String, nullable=False) # 'fuel_outage', 'engine_fault', 'malfunction', 'critical_sensor'
+    interrupt_detail = Column(Text, nullable=True)
+    status = Column(String, default="pending") # 'pending', 'resumed', 'cancelled'
+    importance = Column(String, default="medium")
+    priority = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    asset = relationship("Asset")
