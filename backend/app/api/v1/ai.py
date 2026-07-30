@@ -1,6 +1,13 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
+from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.future import select
+from sqlalchemy import func, and_, desc
+from app.db.postgres import get_db
+from app.models.postgres.core import Asset, Site, Rental, RentalRequest
+from app.models.postgres.telemetry import Telemetry, EngineEvent
 from pydantic import BaseModel
 from typing import List
+from datetime import datetime, timedelta
 
 router = APIRouter()
 
@@ -16,33 +23,55 @@ class RecommendationResponse(BaseModel):
     category: str
 
 @router.get("/recommendations", response_model=List[RecommendationResponse])
-async def get_recommendations():
-    # Return mock AI recommendations for the hackathon
-    # In a real app, this would use an LLM analyzing the Postgres telemetry data.
-    return [
-      {
-        "id": 'rec-1',
-        "equipment": 'CAT 320 Excavator',
-        "equipmentId": 'eq-1',
-        "recommendation": 'Relocate to Site Bravo',
-        "reason": 'Idle for 14 hours while Site Bravo requires an excavator tomorrow for a new foundation pour.',
-        "savings": 2400,
-        "confidence": 97,
-        "priority": 'high',
-        "category": 'Relocation',
-      },
-      {
-        "id": 'rec-2',
-        "equipment": 'CAT 980 Loader',
-        "equipmentId": 'eq-3',
-        "recommendation": 'Schedule preventive maintenance',
-        "reason": 'Engine hours approaching service interval. Risk of unplanned downtime increases 34% past threshold.',
-        "savings": 5800,
-        "confidence": 91,
-        "priority": 'high',
-        "category": 'Maintenance',
-      }
-    ]
+async def get_recommendations(db: AsyncSession = Depends(get_db)):
+    recs = []
+    now = datetime.utcnow()
+    
+    # Rule 1: High Idle Hours -> Relocation
+    idle_res = await db.execute(
+        select(Asset, func.sum(Telemetry.idle_hours).label('t_idle'))
+        .join(Telemetry, Telemetry.asset_id == Asset.asset_id)
+        .where(and_(Asset.current_status == 'available', Telemetry.timestamp >= now - timedelta(days=7)))
+        .group_by(Asset.asset_id)
+        .order_by(desc('t_idle'))
+        .limit(2)
+    )
+    for i, (asset, idle_hrs) in enumerate(idle_res.all()):
+        if idle_hrs and idle_hrs > 5:
+            recs.append(RecommendationResponse(
+                id=f"rec-idle-{asset.asset_id}",
+                equipment=asset.asset_name,
+                equipmentId=asset.asset_id,
+                recommendation="Relocate to high-demand site",
+                reason=f"Idle for {int(idle_hrs)} hours this week. Reallocate to prevent revenue loss.",
+                savings=int(idle_hrs * 150),
+                confidence=95 - i,
+                priority="high" if idle_hrs > 20 else "medium",
+                category="Relocation"
+            ))
+
+    # Rule 2: Critical Engine Events -> Maintenance
+    evt_res = await db.execute(
+        select(Asset, EngineEvent)
+        .join(EngineEvent, EngineEvent.asset_id == Asset.asset_id)
+        .where(and_(EngineEvent.severity == 'critical', EngineEvent.timestamp >= now - timedelta(days=7)))
+        .order_by(desc(EngineEvent.timestamp))
+        .limit(2)
+    )
+    for i, (asset, evt) in enumerate(evt_res.all()):
+        recs.append(RecommendationResponse(
+            id=f"rec-maint-{evt.event_id}",
+            equipment=asset.asset_name,
+            equipmentId=asset.asset_id,
+            recommendation="Schedule preventive maintenance",
+            reason=f"Critical alert: {evt.event_value} detected on {evt.timestamp.strftime('%b %d')}.",
+            savings=5000,
+            confidence=98,
+            priority="high",
+            category="Maintenance"
+        ))
+
+    return recs[:5]
 
 class CopilotRequest(BaseModel):
     query: str
@@ -51,17 +80,80 @@ class CopilotResponse(BaseModel):
     reply: str
 
 @router.post("/copilot", response_model=CopilotResponse)
-async def ask_copilot(req: CopilotRequest):
+async def ask_copilot(req: CopilotRequest, db: AsyncSession = Depends(get_db)):
     q = req.query
-    map_replies = {
-        'Which assets are wasting money?':
-            'Three assets are bleeding revenue right now:\n\n1. CAT 336 Excavator — 6 idle hrs, critical health, $1,800/day at risk\n2. CAT 631 Scraper — 8 idle hrs, $960/day at risk\n3. CAT 966 Loader — 11 idle hrs + maintenance, $2,200/day at risk\n\nTotal daily exposure: ~$4,960. Approve the maintenance recommendation to recover $5,800.',
-        'Recommend relocations.':
-            'Top relocation opportunity:\n\n• Move CAT 320 Excavator from Site Alpha to Site Bravo\n  Reason: idle 14 hrs, Bravo needs excavator tomorrow\n  Savings: $2,400 | Confidence: 97%\n\nSecondary: Redeploy CAT 14M Grader from Alpha to Delta before Thursday roadwork. Savings $3,100, confidence 79%.',
-        "Summarize today's fleet.":
-            "Fleet snapshot — 126 active rentals, 87.4% utilization (+2.1 pts). 14 units idle, 3 safety alerts. Fleet health 92%. $48,200 revenue at risk, mostly concentrated at Site Charlie. 4 critical decisions pending your approval — total potential savings $12,400.",
-        'Which rentals expire tomorrow?':
-            'Rentals expiring within 24h:\n\n• CAT 336 Excavator — Site Charlie (4 days remain, but customer flagged early return)\n• CAT 966 Loader — Site Delta (6 days, in maintenance)\n• CAT D6 Dozer — Site Alpha (8 days)\n\nRecommend proactive renewal outreach on the 336 and 966.',
-    }
-    reply = map_replies.get(q, "I can analyze fleet utilization, recommend relocations, flag revenue at risk, and surface expiring rentals. Try one of the suggested prompts above.")
+    reply = ""
+    now = datetime.utcnow()
+
+    if q == 'Which assets are wasting money?':
+        idle_res = await db.execute(
+            select(Asset, func.sum(Telemetry.idle_hours).label('t_idle'))
+            .join(Telemetry, Telemetry.asset_id == Asset.asset_id)
+            .where(and_(Asset.current_status == 'available', Telemetry.timestamp >= now - timedelta(days=7)))
+            .group_by(Asset.asset_id)
+            .order_by(desc('t_idle'))
+            .limit(3)
+        )
+        assets = idle_res.all()
+        if not assets:
+            reply = "No assets are currently wasting significant money due to idle time."
+        else:
+            lines = []
+            total_risk = 0
+            for i, (asset, idle) in enumerate(assets):
+                hrs = int(idle or 0)
+                risk = hrs * 150
+                total_risk += risk
+                lines.append(f"{i+1}. {asset.asset_name} — {hrs} idle hrs this week, ${risk} at risk")
+            reply = "Assets bleeding revenue right now:\n\n" + "\n".join(lines) + f"\n\nTotal weekly exposure: ${total_risk}. Consider relocating these units."
+
+    elif q == 'Recommend relocations.':
+        idle_res = await db.execute(
+            select(Asset).where(Asset.current_status == 'available').limit(1)
+        )
+        asset = idle_res.scalar_one_or_none()
+        req_res = await db.execute(
+            select(RentalRequest).where(RentalRequest.status == 'pending').limit(1)
+        )
+        req = req_res.scalar_one_or_none()
+        
+        if asset and req:
+            site_res = await db.execute(select(Site).where(Site.site_id == req.site_id))
+            site = site_res.scalar_one_or_none()
+            site_name = site.site_name if site else "another site"
+            reply = f"Top relocation opportunity:\n\n• Move {asset.asset_name} to {site_name}\n  Reason: {site_name} has a pending request for a {req.equipment_type}\n  Savings: $2,400 | Confidence: 97%"
+        else:
+            reply = "No clear relocation opportunities currently based on available assets and pending requests."
+
+    elif q == "Summarize today's fleet.":
+        rentals = (await db.execute(select(func.count(Rental.rental_id)).where(Rental.rental_status == 'active'))).scalar() or 0
+        total = (await db.execute(select(func.count(Asset.asset_id)))).scalar() or 1
+        idle = (await db.execute(select(func.count(Asset.asset_id)).where(Asset.current_status == 'available'))).scalar() or 0
+        alerts = (await db.execute(select(func.count(EngineEvent.event_id)).where(and_(EngineEvent.severity == 'critical', EngineEvent.timestamp >= now - timedelta(days=1))))).scalar() or 0
+        
+        util = int((rentals / total) * 100)
+        reply = f"Fleet snapshot — {rentals} active rentals, {util}% utilization. {idle} units idle, {alerts} critical alerts. ${idle * 1200} revenue at risk. Action required on critical alerts."
+
+    elif q == 'Which rentals expire tomorrow?':
+        tomorrow = now + timedelta(days=1)
+        next_day = tomorrow + timedelta(days=1)
+        exp_res = await db.execute(
+            select(Rental, Asset, Site)
+            .join(Asset, Asset.asset_id == Rental.asset_id)
+            .join(Site, Site.site_id == Rental.site_id)
+            .where(and_(Rental.rental_status == 'active', Rental.expected_return >= tomorrow, Rental.expected_return < next_day))
+            .limit(3)
+        )
+        rentals = exp_res.all()
+        if not rentals:
+            reply = "No rentals are scheduled to expire tomorrow."
+        else:
+            lines = []
+            for r, a, s in rentals:
+                lines.append(f"• {a.asset_name} — {s.site_name} (Expires {r.expected_return.strftime('%Y-%m-%d')})")
+            reply = "Rentals expiring within 24h:\n\n" + "\n".join(lines) + "\n\nRecommend proactive renewal outreach."
+
+    else:
+        reply = "I can analyze fleet utilization, recommend relocations, flag revenue at risk, and surface expiring rentals. Try one of the suggested prompts above."
+        
     return CopilotResponse(reply=reply)

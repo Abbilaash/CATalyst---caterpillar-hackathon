@@ -3,6 +3,7 @@ import { motion } from 'framer-motion';
 import { Eye, ArrowRight, Activity, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
 import { fetchEquipment } from '@/services/api';
+import { Equipment } from '@/types';
 
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';

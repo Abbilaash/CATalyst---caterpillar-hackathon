@@ -56,3 +56,8 @@ export const askCopilot = async (query: string) => {
   const response = await api.post('/ai/copilot', { query });
   return response.data.reply;
 };
+
+export const fetchMaintenanceLogs = async (assetId: string) => {
+  const response = await api.get(`/equipment/${assetId}/maintenance`);
+  return response.data;
+};

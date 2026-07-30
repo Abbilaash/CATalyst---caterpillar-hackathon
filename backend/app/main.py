@@ -1,3 +1,8 @@
+import sys
+import asyncio
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
 from app.db.mongodb import connect_to_mongo, close_mongo_connection

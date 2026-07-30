@@ -44,6 +44,7 @@ class Asset(Base):
     current_site = relationship("Site", back_populates="assets")
     rentals = relationship("Rental", back_populates="asset")
     assignments = relationship("Assignment", back_populates="asset")
+    maintenance_logs = relationship("MaintenanceLog", back_populates="asset")
 
 class RentalRequest(Base):
     __tablename__ = "rental_requests"
@@ -101,3 +102,15 @@ class QRScanLog(Base):
     scan_type = Column(String) # check-in, check-out
     location = Column(String) # GPS coordinates as string or json
     result = Column(String) # success, failed_unauthorized, failed_time_mismatch
+
+class MaintenanceLog(Base):
+    __tablename__ = "maintenance_logs"
+    
+    log_id = Column(String, primary_key=True, default=generate_uuid)
+    asset_id = Column(String, ForeignKey("assets.asset_id"))
+    event = Column(String, nullable=False)
+    date = Column(DateTime, nullable=False)
+    status = Column(String, default="done") # done, upcoming
+    remarks = Column(Text, nullable=True)
+
+    asset = relationship("Asset", back_populates="maintenance_logs")
