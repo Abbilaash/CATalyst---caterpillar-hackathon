@@ -9,9 +9,15 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
+import { LogBox } from 'react-native';
 import { useFrameworkReady } from '@/hooks/useFrameworkReady';
 import { SessionContext } from '@/context/SessionContext';
 import type { Role } from '@/types';
+
+// Suppress Expo Go push notification warning for the demo
+LogBox.ignoreLogs([
+  'expo-notifications: Android Push notifications',
+]);
 
 SplashScreen.preventAutoHideAsync();
 
@@ -26,6 +32,8 @@ export default function RootLayout() {
   });
 
   const [role, setRole] = useState<Role | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [userId, setUserId] = useState<string | null>(null);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -38,7 +46,7 @@ export default function RootLayout() {
   }
 
   return (
-    <SessionContext.Provider value={{ role, setRole }}>
+    <SessionContext.Provider value={{ role, setRole, token, setToken, userId, setUserId }}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#111315' } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="operator-login" />

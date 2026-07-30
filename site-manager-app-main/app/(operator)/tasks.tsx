@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import {
   Play, Pause, Check, Clock, Cpu, ListChecks, Filter,
 } from 'lucide-react-native';
@@ -11,9 +11,10 @@ import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Fab } from '@/components/Fab';
 import { EmptyState } from '@/components/States';
-import { CURRENT_TASKS, assetByMachineId } from '@/data/mock';
 import { priorityColor, prioritySoftColor, priorityLabel, taskStatusLabel, taskStatusColor } from '@/theme/status';
 import type { Task, TaskStatus } from '@/types';
+import { useSession } from '@/context/SessionContext';
+import { useApi } from '@/services/api';
 
 const FILTERS: { key: TaskStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -24,13 +25,40 @@ const FILTERS: { key: TaskStatus | 'all'; label: string }[] = [
 ];
 
 export default function OperatorTasks() {
-  const [tasks, setTasks] = useState<Task[]>(CURRENT_TASKS);
+  const { userId } = useSession();
+  const { fetchWithAuth } = useApi();
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<TaskStatus | 'all'>('all');
+
+  const loadTasks = () => {
+    if (userId) {
+      setLoading(true);
+      fetchWithAuth(`/api/v1/operator/${userId}/tasks`)
+        .then(data => setTasks(data))
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    }
+  };
+
+  useEffect(() => {
+    loadTasks();
+  }, [userId]);
 
   const filtered = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
 
-  const updateStatus = (id: string, status: TaskStatus) => {
+  const updateStatus = async (id: string, status: TaskStatus) => {
+    // Optimistic update
     setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
+    try {
+      await fetchWithAuth(`/api/v1/operator/tasks/${id}`, {
+        method: 'PATCH',
+        body: JSON.stringify({ status })
+      });
+    } catch (e) {
+      console.error(e);
+      loadTasks(); // rollback on failure
+    }
   };
 
   return (
@@ -83,7 +111,6 @@ function TaskCard({
   onPause: () => void;
   onComplete: () => void;
 }) {
-  const asset = assetByMachineId(task.machineId);
   const accent = priorityColor(task.priority);
   const isCompleted = task.status === 'completed';
   const isActive = task.status === 'in_progress';
@@ -96,7 +123,7 @@ function TaskCard({
           <Text style={styles.taskName} numberOfLines={2}>{task.name}</Text>
           <View style={styles.taskMetaRow}>
             <Cpu size={13} color={PALETTE.textTertiary} strokeWidth={2} />
-            <Text style={styles.taskMachine}>{asset?.name ?? task.machineId}</Text>
+            <Text style={styles.taskMachine}>{task.machineName || task.machineId}</Text>
           </View>
         </View>
         <Chip label={priorityLabel(task.priority)} color={accent} soft={prioritySoftColor(task.priority)} dot />

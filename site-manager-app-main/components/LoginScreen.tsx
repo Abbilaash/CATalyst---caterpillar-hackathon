@@ -8,6 +8,7 @@ import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { useSession } from '@/context/SessionContext';
 import { usePushToken } from '@/hooks/usePushToken';
+import { API_BASE } from '@/services/api';
 import type { Role } from '@/types';
 
 type RoleConfig = {
@@ -31,8 +32,8 @@ const CONFIGS: Record<'operator' | 'manager', RoleConfig> = {
     welcomeSub: 'Sign in to access your shift, equipment, and tasks.',
     illustrationTitle: 'Field Operations',
     illustrationSub: 'Scan, operate, and report — all from your device.',
-    employeePlaceholder: 'Employee ID',
-    defaultEmployeeId: 'EMP-2241',
+    employeePlaceholder: 'Email Address',
+    defaultEmployeeId: 'elena@caterpillar.com',
   },
   manager: {
     role: 'manager',
@@ -42,44 +43,85 @@ const CONFIGS: Record<'operator' | 'manager', RoleConfig> = {
     welcomeSub: 'Sign in to oversee assets, operators, and operations.',
     illustrationTitle: 'Site Command',
     illustrationSub: 'Full visibility across your rental fleet.',
-    employeePlaceholder: 'Manager ID',
-    defaultEmployeeId: 'EMP-9901',
+    employeePlaceholder: 'Email Address',
+    defaultEmployeeId: 'manager@example.com',
   },
 };
 
 export function LoginScreen({ role }: { role: Role }) {
   const cfg = CONFIGS[role];
   const router = useRouter();
-  const { setRole } = useSession();
+  const { setRole, setToken, setUserId } = useSession();
   const [employeeId, setEmployeeId] = useState(cfg.defaultEmployeeId);
-  const [password, setPassword] = useState('');
+  const [password, setPassword] = useState('password123'); // Pre-filled for demo
+  const [loading, setLoading] = useState(false);
   const Icon = cfg.icon;
 
   const expoPushToken = usePushToken();
 
   const handleLogin = async () => {
+    setLoading(true);
     setRole(role);
     
-    // Register push token with backend
-    if (expoPushToken) {
-      try {
-        // Use a generic email mapping for demo based on role since there's no real auth yet
-        const userId = role === 'operator' ? 'john.doe@caterpillar.com' : 'mike.smith@caterpillar.com';
-        // We'll hardcode localhost for the simulator. On device, use your machine's IP (e.g., http://192.168.1.100:8000)
-        // For Android emulator, 10.0.2.2 points to host machine
-        const apiBase = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
-        
-        await fetch(`${apiBase}/api/v1/auth/push-token`, {
+    // Site Managers bypass live auth for the demo and login instantly
+    if (role === 'manager') {
+      if (expoPushToken) {
+        fetch(`${API_BASE}/api/v1/auth/push-token`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ user_id: userId, token: expoPushToken })
-        });
-      } catch (err) {
-        console.log('Failed to send push token to backend:', err);
+          body: JSON.stringify({ user_id: employeeId, token: expoPushToken })
+        }).catch(err => console.log('Push token registration skipped/failed:', err));
       }
+      
+      router.replace('/(manager)/dashboard');
+      setLoading(false);
+      return;
     }
 
-    router.replace(role === 'operator' ? '/(operator)/home' : '/(manager)/dashboard');
+    // Operators use live authentication flow
+    console.log('[Login] Attempting:', `${API_BASE}/api/v1/auth/login`, 'with email:', employeeId);
+    
+    try {
+      const response = await fetch(`${API_BASE}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: employeeId, password })
+      });
+
+      console.log('[Login] Response status:', response.status);
+
+      if (!response.ok) {
+        const errBody = await response.text();
+        console.log('[Login] Error body:', errBody);
+        throw new Error(`Server returned ${response.status}: ${errBody}`);
+      }
+
+      const data = await response.json();
+      console.log('[Login] Got data keys:', Object.keys(data));
+      
+      // Use user_id directly from response (backend now returns it)
+      setToken(data.access_token);
+      setUserId(data.user_id);
+      console.log('[Login] userId set to:', data.user_id);
+      
+      // Fire and forget push token registration
+      if (expoPushToken) {
+        fetch(`${API_BASE}/api/v1/auth/push-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: employeeId, token: expoPushToken })
+        }).catch(err => console.log('Push token registration skipped/failed:', err));
+      }
+
+      // Route the user
+      router.replace('/(operator)/home');
+
+    } catch (err) {
+      alert("Login failed. Check your email and password.");
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (

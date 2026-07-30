@@ -54,30 +54,47 @@ async def get_operator_profile(operator_id: str, db: AsyncSession = Depends(get_
 
 @router.get("/{operator_id}/tasks", response_model=list[OperatorTaskResponse])
 async def get_operator_tasks(operator_id: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(
-        select(Assignment, Asset).outerjoin(Asset, Assignment.asset_id == Asset.asset_id)
-        .where(Assignment.operator_id == operator_id)
-    )
-    rows = result.all()
-    
-    tasks = []
-    for assignment, asset in rows:
-        ui_status = assignment.assignment_status
-        if ui_status == 'scheduled': ui_status = 'pending'
-        elif ui_status == 'active': ui_status = 'in_progress'
+    try:
+        result = await db.execute(
+            select(Assignment, Asset, Site)
+            .join(Asset, Assignment.asset_id == Asset.asset_id, isouter=True)
+            .join(Site, Assignment.site_id == Site.site_id, isouter=True)
+            .where(Assignment.operator_id == operator_id)
+        )
+        rows = result.all()
         
-        due_time = assignment.end_time.strftime("%I:%M %p") if assignment.end_time else "TBD"
-        
-        tasks.append(OperatorTaskResponse(
-            id=assignment.assignment_id,
-            name=assignment.job_title or "Untitled Task",
-            priority="High",
-            machineId=asset.serial_number if asset and asset.serial_number else (asset.asset_id if asset else "Unknown"),
-            machineName=asset.asset_name if asset else "Unknown",
-            status=ui_status,
-            dueTime=due_time
-        ))
-    return tasks
+        tasks = []
+        for row in rows:
+            assignment = row[0]
+            asset = row[1]
+            site = row[2]
+            
+            ui_status = assignment.assignment_status
+            if ui_status == 'scheduled': ui_status = 'pending'
+            elif ui_status == 'active': ui_status = 'in_progress'
+            
+            due_time = assignment.end_time.strftime("%I:%M %p") if assignment.end_time else "TBD"
+            
+            tasks.append(OperatorTaskResponse(
+                id=str(assignment.assignment_id),
+                name=str(assignment.job_title or "Untitled Task"),
+                priority="High",
+                machineId=str(asset.serial_number if asset and asset.serial_number else (asset.asset_id if asset else "Unknown")),
+                machineName=str(asset.asset_name if asset else "Unknown"),
+                status=str(ui_status),
+                dueTime=str(due_time),
+                siteName=str(site.site_name) if site else None,
+                fuel=float(asset.fuel_capacity) if asset and asset.fuel_capacity else 100.0,
+                engineHours=float(asset.total_engine_hours) if asset and asset.total_engine_hours else 0.0,
+                healthScore=95,
+                rentalId="RNT-" + str(asset.asset_id)[:4] if asset and asset.current_status == "rented" else None,
+                imageSeed=str(asset.asset_name) if asset else None
+            ))
+        return tasks
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] get_operator_tasks: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.patch("/tasks/{assignment_id}")
 async def update_task_status(assignment_id: str, req: TaskStatusUpdateRequest, db: AsyncSession = Depends(get_db)):
@@ -106,32 +123,51 @@ async def toggle_shift(operator_id: str):
 
 @router.get("/scan/{qr_code}", response_model=AssetScanResponse)
 async def scan_qr(qr_code: str, db: AsyncSession = Depends(get_db)):
-    result = await db.execute(select(Asset, Site).outerjoin(Site, Asset.current_site_id == Site.site_id).where(Asset.qr_code == qr_code))
-    row = result.first()
-    if not row:
-        raise HTTPException(status_code=404, detail="Asset not found")
+    try:
+        result = await db.execute(
+            select(Asset, Site)
+            .join(Assignment, Asset.asset_id == Assignment.asset_id, isouter=True)
+            .join(Site, Assignment.site_id == Site.site_id, isouter=True)
+            .where(Asset.qr_code == qr_code)
+            .order_by(Assignment.start_time.desc()) # Get the most recent/active assignment's site
+        )
+        row = result.first()
+        if not row:
+            raise HTTPException(status_code=404, detail="Asset not found")
+            
+        asset = row[0]
+        site = row[1]
         
-    asset, site = row
-    
-    return AssetScanResponse(
-        name=asset.asset_name,
-        imageSeed=asset.asset_name,
-        status=asset.current_status,
-        machineId=asset.serial_number or asset.asset_id,
-        rentalId="RNT-" + asset.asset_id[:4] if asset.current_status == "rented" else None,
-        healthScore=95,
-        assignedSite=site.site_name if site else None,
-        assignedOperator=None
-    )
+        return AssetScanResponse(
+            name=str(asset.asset_name),
+            imageSeed=str(asset.asset_name),
+            status=str(asset.current_status),
+            machineId=str(asset.serial_number or asset.asset_id),
+            rentalId="RNT-" + str(asset.asset_id)[:4] if asset.current_status == "rented" else None,
+            healthScore=95,
+            assignedSite=str(site.site_name) if site else None,
+            assignedOperator=None
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] scan_qr: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))
 
 @router.post("/report-issue")
 async def report_issue(req: ReportIssueRequest, db: AsyncSession = Depends(get_db)):
-    log = MaintenanceLog(
-        asset_id=req.asset_id,
-        event="Issue Reported: " + req.problem_details,
-        date=datetime.utcnow(),
-        status="upcoming"
-    )
-    db.add(log)
-    await db.commit()
-    return {"message": "Issue reported"}
+    try:
+        log = MaintenanceLog(
+            asset_id=req.asset_id,
+            event="Issue Reported: " + req.problem_details,
+            date=datetime.utcnow(),
+            status="upcoming"
+        )
+        db.add(log)
+        await db.commit()
+        return {"message": "Issue reported"}
+    except Exception as e:
+        import traceback
+        print(f"[ERROR] report_issue: {e}\n{traceback.format_exc()}")
+        raise HTTPException(status_code=500, detail=str(e))

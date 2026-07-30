@@ -43,7 +43,7 @@ async def register_user(user_in: UserCreate):
         status=user.status
     )
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(user_in: UserLogin):
     user = await User.find_one(User.email == user_in.email)
     if not user or not verify_password(user_in.password, user.password_hash):
@@ -56,7 +56,13 @@ async def login(user_in: UserLogin):
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role}
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": str(user.id),
+        "role": user.role,
+        "name": user.name
+    }
 
 from pydantic import BaseModel as PydanticBaseModel
 

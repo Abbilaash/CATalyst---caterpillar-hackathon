@@ -46,16 +46,16 @@ async def seed():
     
     # 3. Operator
     operator_user = User(
-        name="John Smith (Operator)", 
-        email="operator@example.com", 
+        name="Elena (Operator)", 
+        email="elena@caterpillar.com", 
         password_hash=hashed_pwd, 
         role="operator"
     )
     await operator_user.insert()
-    op = Operator(user=operator_user, license_number="LIC998877", experience_years=5)
+    op = Operator(user=operator_user, license_number="LIC998877", experience_years=5, shift_status="on_duty")
     await op.insert()
 
-    # Seed Postgres base data (Site and Asset)
+    # Seed Postgres base data (Site, Asset, and Assignments)
     print("Seeding PostgreSQL base data...")
     async with engine.begin() as conn:
         # Clear existing
@@ -79,7 +79,25 @@ async def seed():
             INSERT INTO assets (asset_id, qr_code, asset_name, equipment_type, manufacturer, model, current_status) 
             VALUES (:id, :qr, :name, :type, :mfg, :model, :status)
             """),
-            {"id": asset_id, "qr": "QR-EQX-1001", "name": "Cat 320 Excavator", "type": "Excavator", "mfg": "Caterpillar", "model": "320", "status": "available"}
+            {"id": asset_id, "qr": "QR-EQX-1001", "name": "Cat 320 Excavator", "type": "Excavator", "mfg": "Caterpillar", "model": "320", "status": "rented"}
+        )
+
+        # Create Tasks (Assignments) for Elena
+        from datetime import datetime, timedelta
+        now = datetime.utcnow()
+        await conn.execute(
+            text("""
+            INSERT INTO assignments (assignment_id, asset_id, site_id, operator_id, start_time, end_time, assignment_status, job_title) 
+            VALUES 
+            (:id1, :asset, :site, :op, :t1, :t2, 'scheduled', 'Morning Site Clearance'),
+            (:id2, :asset, :site, :op, :t3, :t4, 'active', 'Trench Digging - Sector B')
+            """),
+            {
+                "id1": "tsk-001", "id2": "tsk-002",
+                "asset": asset_id, "site": site_id, "op": str(operator_user.id),
+                "t1": now + timedelta(hours=4), "t2": now + timedelta(hours=6),
+                "t3": now - timedelta(hours=1), "t4": now + timedelta(hours=2),
+            }
         )
 
     print("\n" + "="*50)
