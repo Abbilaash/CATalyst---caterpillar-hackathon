@@ -22,6 +22,7 @@ class Operator(Document):
     experience_years: int
     assigned_site_id: Optional[str] = None # FK to postgres site_id, keep as string
     status: str = "available"
+    certified_equipment_types: List[str] = []
     emergency_contact: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 

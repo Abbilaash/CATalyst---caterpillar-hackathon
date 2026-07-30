@@ -40,6 +40,7 @@ class Asset(Base):
     last_service_date = Column(Date)
     next_service_due = Column(Date)
     image_url = Column(String)
+    last_operator = Column(String, nullable=True)
 
     current_site = relationship("Site", back_populates="assets")
     rentals = relationship("Rental", back_populates="asset")

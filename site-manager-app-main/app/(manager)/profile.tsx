@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
@@ -15,11 +15,44 @@ import { Avatar } from '@/components/Avatar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { CURRENT_MANAGER } from '@/data/mock';
 import { useSession } from '@/context/SessionContext';
+import { API_BASE_URL } from '@/constant/api';
 
 export default function ManagerProfile() {
   const router = useRouter();
-  const { setRole } = useSession();
+  const { setRole, managerId } = useSession();
   const [logout, setLogout] = useState(false);
+  const [profileData, setProfileData] = useState({
+    name: CURRENT_MANAGER.name,
+    siteName: CURRENT_MANAGER.siteName,
+    managedAssets: CURRENT_MANAGER.managedAssets,
+    operators: CURRENT_MANAGER.operators,
+    reportsGenerated: CURRENT_MANAGER.reportsGenerated
+  });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchProfile() {
+      try {
+        const resolvedManagerId = managerId || 'mgr-01';
+        const response = await fetch(`${API_BASE_URL}/api/v1/manager/profile/${resolvedManagerId}`);
+        if (response.ok) {
+          const data = await response.json();
+          setProfileData({
+            name: data.name,
+            siteName: data.site_name,
+            managedAssets: data.managed_assets,
+            operators: data.operators,
+            reportsGenerated: data.reports_generated
+          });
+        }
+      } catch (err) {
+        console.warn('Failed to load profile from backend, using mock:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchProfile();
+  }, [managerId]);
 
   const handleLogout = () => {
     setLogout(false);
@@ -36,9 +69,9 @@ export default function ManagerProfile() {
           {/* Profile header */}
           <Card style={styles.profileCard}>
             <View style={styles.profileTop}>
-              <Avatar name={CURRENT_MANAGER.name} size={72} showRing />
+              <Avatar name={profileData.name} size={72} showRing />
               <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{CURRENT_MANAGER.name}</Text>
+                <Text style={styles.name}>{profileData.name}</Text>
                 <Text style={styles.role}>Site Manager</Text>
                 <View style={{ marginTop: SPACING.sm }}>
                   <Chip label="On Duty" color={PALETTE.success} soft={PALETTE.successSoft} dot size="md" />
@@ -51,9 +84,9 @@ export default function ManagerProfile() {
           <View style={styles.section}>
             <SectionLabel>Site Information</SectionLabel>
             <Card style={styles.idCard}>
-              <IdRow Icon={IdCard} label="Manager ID" value="MGR-9901" />
+              <IdRow Icon={IdCard} label="Manager ID" value={managerId || "MGR-9901"} />
               <View style={styles.divider} />
-              <IdRow Icon={MapPin} label="Site Name" value={CURRENT_MANAGER.siteName} />
+              <IdRow Icon={MapPin} label="Site Name" value={profileData.siteName} />
               <View style={styles.divider} />
               <IdRow Icon={Building2} label="Facility" value="Caterpillar Authorized Dealer" />
             </Card>
@@ -63,9 +96,9 @@ export default function ManagerProfile() {
           <View style={styles.section}>
             <SectionLabel>Management Overview</SectionLabel>
             <View style={styles.statGrid}>
-              <StatTile Icon={Boxes} label="Managed Assets" value={`${CURRENT_MANAGER.managedAssets}`} accent={PALETTE.catYellow} />
-              <StatTile Icon={Users} label="Operators" value={`${CURRENT_MANAGER.operators}`} accent={PALETTE.info} />
-              <StatTile Icon={FileText} label="Reports Generated" value={`${CURRENT_MANAGER.reportsGenerated}`} accent={PALETTE.success} />
+              <StatTile Icon={Boxes} label="Managed Assets" value={`${profileData.managedAssets}`} accent={PALETTE.catYellow} />
+              <StatTile Icon={Users} label="Operators" value={`${profileData.operators}`} accent={PALETTE.info} />
+              <StatTile Icon={FileText} label="Reports Generated" value={`${profileData.reportsGenerated}`} accent={PALETTE.success} />
             </View>
           </View>
 

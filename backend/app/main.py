@@ -1,5 +1,10 @@
 from fastapi import FastAPI
 from contextlib import asynccontextmanager
+
+# Monkey-patch AsyncIOMotorClient to prevent Beanie driver metadata check from crashing on motor 3.7+
+from motor.motor_asyncio import AsyncIOMotorClient
+AsyncIOMotorClient.append_metadata = lambda self, *args, **kwargs: None
+
 from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from beanie import init_beanie
 from app.db.mongodb import get_database
@@ -23,7 +28,7 @@ async def lifespan(app: FastAPI):
         from app.models.postgres.core import Base
         await conn.run_sync(Base.metadata.create_all)
     print("*" * 50)
-    print("SUCCESS: Connected to Local PostgreSQL Database!")
+    print("SUCCESS: Connected to PostgreSQL Database (Supabase)!")
     print("*" * 50)
     
     yield
@@ -35,10 +40,10 @@ from fastapi.middleware.cors import CORSMiddleware
 
 app = FastAPI(title="Smart Rental Tracking API", lifespan=lifespan)
 
-# Allow React/Vite frontend
+# Allow all origins during development (Expo web, Vite, React Native, etc.)
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],

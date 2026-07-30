@@ -1,13 +1,14 @@
 import { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, TextInput, Pressable, KeyboardAvoidingView, Platform, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  HardHat, Building2, Lock, User, ArrowLeft, ChevronRight, ShieldCheck,
+  HardHat, Building2, Lock, User, ArrowLeft, ChevronRight, ShieldCheck, AlertCircle,
 } from 'lucide-react-native';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { useSession } from '@/context/SessionContext';
 import type { Role } from '@/types';
+import { API_BASE_URL } from '@/constant/api';
 
 type RoleConfig = {
   role: Role;
@@ -30,8 +31,8 @@ const CONFIGS: Record<'operator' | 'manager', RoleConfig> = {
     welcomeSub: 'Sign in to access your shift, equipment, and tasks.',
     illustrationTitle: 'Field Operations',
     illustrationSub: 'Scan, operate, and report — all from your device.',
-    employeePlaceholder: 'Employee ID',
-    defaultEmployeeId: 'EMP-2241',
+    employeePlaceholder: 'Email Address',
+    defaultEmployeeId: 'operator@caterpillar.com',
   },
   manager: {
     role: 'manager',
@@ -41,22 +42,93 @@ const CONFIGS: Record<'operator' | 'manager', RoleConfig> = {
     welcomeSub: 'Sign in to oversee assets, operators, and operations.',
     illustrationTitle: 'Site Command',
     illustrationSub: 'Full visibility across your rental fleet.',
-    employeePlaceholder: 'Manager ID',
-    defaultEmployeeId: 'EMP-9901',
+    employeePlaceholder: 'Email Address',
+    defaultEmployeeId: 'manager@caterpillar.com',
   },
+};
+
+// Safe pure JS base64 decoder
+const base64Decode = (input: string): string => {
+  const chars = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/=';
+  let str = input.replace(/=+$/, '');
+  let output = '';
+  if (str.length % 4 === 1) {
+    throw new Error("'atob' failed: The string to be decoded is not correctly encoded.");
+  }
+  for (let bc = 0, bs = 0, buffer, idx = 0; idx < str.length; idx++) {
+    const char = str.charAt(idx);
+    const charIndex = chars.indexOf(char);
+    if (charIndex === -1) continue;
+    buffer = bc % 4 ? buffer * 64 + charIndex : charIndex;
+    if (bc++ % 4) {
+      output += String.fromCharCode(255 & (buffer >> ((-2 * bc) & 6)));
+    }
+  }
+  return output;
 };
 
 export function LoginScreen({ role }: { role: Role }) {
   const cfg = CONFIGS[role];
   const router = useRouter();
-  const { setRole } = useSession();
+  const { setRole, setEmail, setToken, setManagerId } = useSession();
   const [employeeId, setEmployeeId] = useState(cfg.defaultEmployeeId);
   const [password, setPassword] = useState('');
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const Icon = cfg.icon;
 
-  const handleLogin = () => {
-    setRole(role);
-    router.replace(role === 'operator' ? '/(operator)/home' : '/(manager)/dashboard');
+  const handleLogin = async () => {
+    if (!employeeId.trim() || !password) {
+      setError('Please enter both email and password.');
+      return;
+    }
+    setLoading(true);
+    setError(null);
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/auth/login`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          email: employeeId.trim(),
+          password: password,
+        }),
+      });
+
+      const data = await response.json();
+      if (!response.ok) {
+        setError(data.detail || 'Incorrect email or password.');
+        setLoading(false);
+        return;
+      }
+
+      // 1. Save data to context
+      setToken(data.access_token);
+      setEmail(employeeId.trim());
+      setRole(role);
+
+      // 2. Decode JWT payload to retrieve manager user ID (sub)
+      let resolvedUserId = 'mgr-01';
+      try {
+        const payloadBase64 = data.access_token.split('.')[1];
+        const decodedPayload = JSON.parse(base64Decode(payloadBase64));
+        if (decodedPayload && decodedPayload.sub) {
+          resolvedUserId = decodedPayload.sub;
+        }
+      } catch (jwtErr) {
+        console.warn('Could not decode JWT sub payload:', jwtErr);
+      }
+      setManagerId(resolvedUserId);
+
+      setLoading(false);
+      router.replace(role === 'operator' ? '/(operator)/home' : '/(manager)/dashboard');
+    } catch (err: any) {
+      console.error('Login connection error:', err);
+      setError('Failed to connect to authentication server. Please check your network.');
+      setLoading(false);
+    }
   };
 
   return (
@@ -89,6 +161,13 @@ export function LoginScreen({ role }: { role: Role }) {
             <Text style={styles.welcomeTitle}>{cfg.welcomeTitle}</Text>
             <Text style={styles.welcomeSub}>{cfg.welcomeSub}</Text>
 
+            {error && (
+              <View style={styles.errorContainer}>
+                <AlertCircle size={16} color="#FF3333" strokeWidth={2.5} />
+                <Text style={styles.errorText}>{error}</Text>
+              </View>
+            )}
+
             <View style={styles.field}>
               <User size={18} color={PALETTE.textTertiary} strokeWidth={2} />
               <TextInput
@@ -99,6 +178,7 @@ export function LoginScreen({ role }: { role: Role }) {
                 style={styles.input}
                 autoCapitalize="none"
                 autoCorrect={false}
+                keyboardType="email-address"
               />
             </View>
 
@@ -114,14 +194,24 @@ export function LoginScreen({ role }: { role: Role }) {
               />
             </View>
 
-            <Pressable onPress={handleLogin} style={({ pressed }) => [styles.loginBtn, SHADOW.raised, pressed && styles.btnPressed]}>
-              <Text style={styles.loginBtnText}>Sign In</Text>
-              <ChevronRight size={20} color={PALETTE.textInverse} strokeWidth={2.4} />
+            <Pressable
+              onPress={handleLogin}
+              disabled={loading}
+              style={({ pressed }) => [styles.loginBtn, SHADOW.raised, (pressed || loading) && styles.btnPressed]}
+            >
+              {loading ? (
+                <ActivityIndicator size="small" color={PALETTE.textInverse} />
+              ) : (
+                <>
+                  <Text style={styles.loginBtnText}>Sign In</Text>
+                  <ChevronRight size={20} color={PALETTE.textInverse} strokeWidth={2.4} />
+                </>
+              )}
             </Pressable>
 
             <View style={styles.secureRow}>
               <ShieldCheck size={14} color={PALETTE.textTertiary} strokeWidth={2} />
-              <Text style={styles.secureText}>Demo access — no credentials required</Text>
+              <Text style={styles.secureText}>Secure Enterprise Login</Text>
             </View>
           </View>
         </View>
@@ -167,6 +257,13 @@ const styles = StyleSheet.create({
   formWrap: { flex: 1, gap: SPACING.md },
   welcomeTitle: { fontFamily: FONT.bold, fontSize: 24, color: PALETTE.textPrimary, lineHeight: 30 },
   welcomeSub: { fontFamily: FONT.regular, fontSize: 14, color: PALETTE.textSecondary, lineHeight: 21, marginBottom: SPACING.lg },
+  errorContainer: {
+    flexDirection: 'row', alignItems: 'center', gap: SPACING.xs,
+    backgroundColor: 'rgba(255, 51, 51, 0.1)',
+    borderRadius: RADIUS.md, borderWidth: 1, borderColor: 'rgba(255, 51, 51, 0.2)',
+    padding: SPACING.sm, marginBottom: SPACING.sm,
+  },
+  errorText: { fontFamily: FONT.bold, fontSize: 13, color: '#FF3333', flex: 1 },
   field: {
     flexDirection: 'row', alignItems: 'center', gap: SPACING.md,
     backgroundColor: PALETTE.surface,

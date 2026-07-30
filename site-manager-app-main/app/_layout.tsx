@@ -26,6 +26,9 @@ export default function RootLayout() {
   });
 
   const [role, setRole] = useState<Role | null>(null);
+  const [managerId, setManagerId] = useState<string | null>(null);
+  const [token, setToken] = useState<string | null>(null);
+  const [email, setEmail] = useState<string | null>(null);
 
   useEffect(() => {
     if (fontsLoaded || fontError) {
@@ -38,7 +41,7 @@ export default function RootLayout() {
   }
 
   return (
-    <SessionContext.Provider value={{ role, setRole }}>
+    <SessionContext.Provider value={{ role, setRole, managerId, setManagerId, token, setToken, email, setEmail }}>
       <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#111315' } }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="operator-login" />

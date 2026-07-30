@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Boxes, ChevronDown, Cpu, MapPin, User, Heart, Gauge, Timer, Eye, X } from 'lucide-react-native';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
@@ -13,6 +13,8 @@ import { EmptyState } from '@/components/States';
 import { ASSETS, siteById, operatorById } from '@/data/mock';
 import { statusColor, statusLabel, rentalColor, rentalLabel, healthColor } from '@/theme/status';
 import type { Asset, EquipmentStatus, RentalStatus } from '@/types';
+import { useSession } from '@/context/SessionContext';
+import { API_BASE_URL } from '@/constant/api';
 
 type SortKey = 'name' | 'health' | 'hours';
 
@@ -25,14 +27,37 @@ const STATUS_FILTERS: { key: EquipmentStatus | 'all'; label: string }[] = [
 ];
 
 export default function ManagerAssets() {
+  const { managerId } = useSession();
   const [query, setQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<EquipmentStatus | 'all'>('all');
   const [sort, setSort] = useState<SortKey>('name');
   const [sortOpen, setSortOpen] = useState(false);
   const [quickView, setQuickView] = useState<Asset | null>(null);
+  const [assetsList, setAssetsList] = useState<Asset[]>(ASSETS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchAssets() {
+      try {
+        const resolvedManagerId = managerId || 'mgr-01';
+        const response = await fetch(`${API_BASE_URL}/api/v1/manager/assets/${resolvedManagerId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0) {
+            setAssetsList(data);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load assets from backend, using mock:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchAssets();
+  }, [managerId]);
 
   const filtered = useMemo(() => {
-    let list = ASSETS.filter((a) => {
+    let list = assetsList.filter((a) => {
       const matchesQuery =
         a.name.toLowerCase().includes(query.toLowerCase()) ||
         a.machineId.toLowerCase().includes(query.toLowerCase()) ||
@@ -46,7 +71,7 @@ export default function ManagerAssets() {
       return a.name.localeCompare(b.name);
     });
     return list;
-  }, [query, statusFilter, sort]);
+  }, [assetsList, query, statusFilter, sort]);
 
   const sortLabel = { name: 'Name A-Z', health: 'Health: High-Low', hours: 'Engine: Low-High' }[sort];
 

@@ -53,6 +53,22 @@ async def login(user_in: UserLogin):
             headers={"WWW-Authenticate": "Bearer"},
         )
     
+    # Verify profile existence in role-specific collections
+    if user.role == "site_manager":
+        sm = await SiteManager.find_one({"user.$id": user.id})
+        if not sm:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Site Manager profile not found"
+            )
+    elif user.role == "operator":
+        op = await Operator.find_one({"user.$id": user.id})
+        if not op:
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Operator profile not found"
+            )
+            
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role}
     )

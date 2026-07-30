@@ -5,7 +5,7 @@ import {
   PackagePlus, FileText, CheckCircle2, AlertTriangle, CalendarClock,
   ChevronRight,
 } from 'lucide-react-native';
-import { ComponentType } from 'react';
+import { ComponentType, useState, useEffect } from 'react';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { ManagerShell } from '@/components/ManagerShell';
@@ -14,6 +14,8 @@ import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Avatar } from '@/components/Avatar';
 import { CURRENT_MANAGER, DASHBOARD_STATS, ACTIVITIES } from '@/data/mock';
+import { useSession } from '@/context/SessionContext';
+import { API_BASE_URL } from '@/constant/api';
 
 type IconType = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -24,15 +26,15 @@ type SummaryCard = {
   accent: string;
 };
 
-const SUMMARY: SummaryCard[] = [
-  { Icon: Boxes, label: 'Total Assets', value: DASHBOARD_STATS.totalAssets, accent: PALETTE.catYellow },
-  { Icon: KeyRound, label: 'Active Rentals', value: DASHBOARD_STATS.activeRentals, accent: PALETTE.success },
-  { Icon: Cog, label: 'Machines Working', value: DASHBOARD_STATS.machinesWorking, accent: PALETTE.info },
-  { Icon: Moon, label: 'Machines Idle', value: DASHBOARD_STATS.machinesIdle, accent: PALETTE.warning },
-  { Icon: Users, label: 'Operators On Duty', value: DASHBOARD_STATS.operatorsOnDuty, accent: PALETTE.catYellow },
-  { Icon: Activity, label: 'Running Operations', value: DASHBOARD_STATS.runningOperations, accent: PALETTE.info },
-  { Icon: Wrench, label: 'Maintenance Due', value: DASHBOARD_STATS.maintenanceDue, accent: PALETTE.warning },
-  { Icon: ShieldAlert, label: 'Safety Alerts', value: DASHBOARD_STATS.safetyAlerts, accent: PALETTE.error },
+const SUMMARY = (stats: any): SummaryCard[] => [
+  { Icon: Boxes, label: 'Total Assets', value: stats.totalAssets, accent: PALETTE.catYellow },
+  { Icon: KeyRound, label: 'Active Rentals', value: stats.activeRentals, accent: PALETTE.success },
+  { Icon: Cog, label: 'Machines Working', value: stats.machinesWorking, accent: PALETTE.info },
+  { Icon: Moon, label: 'Machines Idle', value: stats.machinesIdle, accent: PALETTE.warning },
+  { Icon: Users, label: 'Operators On Duty', value: stats.operatorsOnDuty, accent: PALETTE.catYellow },
+  { Icon: Activity, label: 'Running Operations', value: stats.runningOperations, accent: PALETTE.info },
+  { Icon: Wrench, label: 'Maintenance Due', value: stats.maintenanceDue, accent: PALETTE.warning },
+  { Icon: ShieldAlert, label: 'Safety Alerts', value: stats.safetyAlerts, accent: PALETTE.error },
 ];
 
 const ACTIVITY_ICONS: Record<string, { Icon: IconType; accent: string }> = {
@@ -45,24 +47,55 @@ const ACTIVITY_ICONS: Record<string, { Icon: IconType; accent: string }> = {
 
 export default function ManagerDashboard() {
   const router = useRouter();
+  const { managerId } = useSession();
+  const [stats, setStats] = useState(DASHBOARD_STATS);
+  const [activities, setActivities] = useState(ACTIVITIES);
+  const [managerInfo, setManagerInfo] = useState(CURRENT_MANAGER);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function fetchDashboard() {
+      try {
+        const resolvedManagerId = managerId || 'mgr-01';
+        const response = await fetch(`${API_BASE_URL}/api/v1/manager/dashboard/${resolvedManagerId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.stats) setStats(data.stats);
+          if (data.activities) setActivities(data.activities);
+          if (data.manager_name) {
+            setManagerInfo({
+              name: data.manager_name,
+              siteName: data.site_name || 'Highland Quarry',
+              avatar: CURRENT_MANAGER.avatar
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load dashboard from backend, using mock:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchDashboard();
+  }, [managerId]);
 
   return (
     <Screen>
       <ManagerShell active="dashboard">
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <AppHeader
-            title={`Welcome, ${CURRENT_MANAGER.name.split(' ')[0]}`}
-            subtitle={`${CURRENT_MANAGER.siteName} · Site Manager`}
+            title={`Welcome, ${managerInfo.name.split(' ')[0]}`}
+            subtitle={`${managerInfo.siteName} · Site Manager`}
             onSearch={() => router.push('/(manager)/assets')}
             onBell={() => {}}
-            badge={DASHBOARD_STATS.safetyAlerts}
+            badge={stats.safetyAlerts}
           />
 
           {/* Hero KPIs - first row */}
           <View style={styles.section}>
             <View style={styles.kpiRow}>
-              <KpiCard Icon={Boxes} label="Total Assets" value={DASHBOARD_STATS.totalAssets} accent={PALETTE.catYellow} big />
-              <KpiCard Icon={Activity} label="Operations" value={DASHBOARD_STATS.runningOperations} accent={PALETTE.info} big />
+              <KpiCard Icon={Boxes} label="Total Assets" value={stats.totalAssets} accent={PALETTE.catYellow} big />
+              <KpiCard Icon={Activity} label="Operations" value={stats.runningOperations} accent={PALETTE.info} big />
             </View>
           </View>
 
@@ -70,7 +103,7 @@ export default function ManagerDashboard() {
           <View style={styles.section}>
             <SectionLabel title="Executive Summary" />
             <View style={styles.grid}>
-              {SUMMARY.slice(2).map((s) => (
+              {SUMMARY(stats).slice(2).map((s) => (
                 <SummaryTile key={s.label} {...s} />
               ))}
             </View>
@@ -82,7 +115,7 @@ export default function ManagerDashboard() {
               <HighlightCard
                 Icon={ShieldAlert}
                 label="Safety Alerts"
-                value={DASHBOARD_STATS.safetyAlerts}
+                value={stats.safetyAlerts}
                 detail="Requires immediate attention"
                 accent={PALETTE.error}
                 onPress={() => router.push('/(manager)/operations')}
@@ -90,7 +123,7 @@ export default function ManagerDashboard() {
               <HighlightCard
                 Icon={Wrench}
                 label="Maintenance Due"
-                value={DASHBOARD_STATS.maintenanceDue}
+                value={stats.maintenanceDue}
                 detail="Scheduled this week"
                 accent={PALETTE.warning}
                 onPress={() => router.push('/(manager)/assets')}
@@ -102,9 +135,9 @@ export default function ManagerDashboard() {
           <View style={[styles.section, { marginBottom: SPACING.xxxl }]}>
             <SectionLabel title="Recent Activity" />
             <Card style={styles.timelineCard}>
-              {ACTIVITIES.map((a, i) => {
+              {activities.map((a, i) => {
                 const cfg = ACTIVITY_ICONS[a.type];
-                const isLast = i === ACTIVITIES.length - 1;
+                const isLast = i === activities.length - 1;
                 return (
                   <View key={a.id} style={[styles.timelineItem, !isLast && styles.timelineItemBorder]}>
                     <View style={[styles.timelineIcon, { backgroundColor: cfg.accent + '22', borderColor: cfg.accent + '44' }]}>

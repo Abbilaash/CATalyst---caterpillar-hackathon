@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
 import { Activity, Eye, UserCog, CheckCircle2, Clock, Cpu, X } from 'lucide-react-native';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
@@ -13,20 +13,64 @@ import { EmptyState } from '@/components/States';
 import { OPERATIONS, operatorById, assetByMachineId } from '@/data/mock';
 import { priorityColor, prioritySoftColor, priorityLabel, taskStatusLabel, taskStatusColor } from '@/theme/status';
 import type { Operation } from '@/types';
+import { useSession } from '@/context/SessionContext';
+import { API_BASE_URL } from '@/constant/api';
 
 export default function ManagerOperations() {
+  const { managerId } = useSession();
   const [operations, setOperations] = useState<Operation[]>(OPERATIONS);
   const [detail, setDetail] = useState<Operation | null>(null);
   const [reassign, setReassign] = useState<Operation | null>(null);
   const [complete, setComplete] = useState<Operation | null>(null);
+  const [loading, setLoading] = useState(true);
 
-  const markComplete = (id: string) => {
-    setOperations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'completed', progress: 100 } : o)));
+  useEffect(() => {
+    async function fetchOperations() {
+      try {
+        const resolvedManagerId = managerId || 'mgr-01';
+        const response = await fetch(`${API_BASE_URL}/api/v1/manager/operations/${resolvedManagerId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data && data.length > 0) {
+            setOperations(data);
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load operations from backend:', err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchOperations();
+  }, [managerId]);
+
+  const markComplete = async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/manager/operations/${id}/complete`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        setOperations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'completed', progress: 100 } : o)));
+      }
+    } catch (err) {
+      console.warn('Error completing task:', err);
+      setOperations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'completed', progress: 100 } : o)));
+    }
     setComplete(null);
   };
 
-  const reassignOp = (id: string) => {
-    setOperations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'in_progress', progress: Math.max(o.progress, 10) } : o)));
+  const reassignOp = async (id: string) => {
+    try {
+      const response = await fetch(`${API_BASE_URL}/api/v1/manager/operations/${id}/reassign?operator_id=op-02`, {
+        method: 'POST',
+      });
+      if (response.ok) {
+        setOperations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'in_progress', progress: Math.max(o.progress, 10), operatorId: 'op-02', operatorName: 'Dana Whitfield' } : o)));
+      }
+    } catch (err) {
+      console.warn('Error reassigning operator:', err);
+      setOperations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'in_progress', progress: Math.max(o.progress, 10) } : o)));
+    }
     setReassign(null);
   };
 
