@@ -8,6 +8,8 @@ Notifications.setNotificationHandler({
     shouldShowAlert: true,
     shouldPlaySound: true,
     shouldSetBadge: false,
+    shouldShowBanner: true,
+    shouldShowList: true,
   }),
 });
 
@@ -39,7 +41,14 @@ export async function registerForPushNotificationsAsync() {
       return null;
     }
     // Note: To use this in production with EAS, you need projectId: Constants.expoConfig.extra.eas.projectId
-    token = (await Notifications.getExpoPushTokenAsync()).data;
+    try {
+      token = (await Notifications.getExpoPushTokenAsync({
+        projectId: 'mock-project-id-for-hackathon' // Required for Expo SDK 53+
+      })).data;
+    } catch (e) {
+      console.warn('Expo push notifications are not fully supported in this Expo Go environment. Returning mock token.');
+      token = 'mock-expo-push-token';
+    }
   } else {
     console.warn('Must use physical device for Push Notifications');
   }
