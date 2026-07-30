@@ -36,6 +36,7 @@ class Asset(Base):
     current_status = Column(String, default="available") # rented, available, maintenance
     total_engine_hours = Column(Float, default=0.0)
     fuel_capacity = Column(Float)
+    max_payload_tons = Column(Float, nullable=True)
     last_service_date = Column(Date)
     next_service_due = Column(Date)
     image_url = Column(String)
@@ -88,6 +89,7 @@ class Assignment(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     assignment_status = Column(String, default="scheduled") # scheduled, active, completed, cancelled
+    capacity_required = Column(Float, nullable=True)
     importance = Column(String, default="medium") # high, medium, low
     priority = Column(Boolean, default=False)
 
@@ -128,6 +130,7 @@ class AssignmentQueue(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     total_hours = Column(Float, nullable=False)
+    capacity_required = Column(Float, nullable=True)
     importance = Column(String, default="medium")
     priority = Column(Boolean, default=False)
     created_at = Column(DateTime, server_default=func.now())

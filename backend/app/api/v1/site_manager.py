@@ -140,6 +140,7 @@ class AutoAssignTaskItem(BaseModel):
     start_date: str # "YYYY-MM-DD"
     start_time: str # "HH:MM"
     total_hours: float
+    capacity_required: float = None
     importance: str # "high", "medium", "low"
     priority: bool
 
@@ -176,6 +177,7 @@ class QueuedTaskResponseItem(BaseModel):
     start_time: str
     end_time: str
     total_hours: float
+    capacity_required: float = None
     importance: str
     priority: bool
     created_at: str
@@ -1573,3 +1575,5 @@ async def check_interruptions(manager_id: str, db: AsyncSession = Depends(get_db
     except Exception as e:
         import traceback; traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
+    capacity_required: float = None
+    capacity_required: float = None
