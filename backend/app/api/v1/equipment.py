@@ -73,7 +73,7 @@ async def get_all_equipment(db: AsyncSession = Depends(get_db)):
         rental_days = 0
         if ui_status == "working" and asset.asset_id in rental_map:
             rental = rental_map[asset.asset_id]
-            operator_name = rental.assigned_operator or "Unknown"
+            operator_name = rental.assigned_site_manager or "Unknown"
             if rental.expected_return:
                 rental_days = max(0, (rental.expected_return - now).days)
 

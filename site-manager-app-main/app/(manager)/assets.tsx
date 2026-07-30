@@ -131,7 +131,7 @@ export default function ManagerAssets() {
 
 function AssetCard({ asset, onQuickView }: { asset: Asset; onQuickView: () => void }) {
   const site = siteById(asset.siteId);
-  const op = asset.assignedOperatorId ? operatorById(asset.assignedOperatorId) : undefined;
+  const opName = (asset as any).assignedOperatorName || (asset.assignedOperatorId ? 'Operator' : undefined);
   const sColor = statusColor(asset.status);
 
   return (
@@ -155,7 +155,7 @@ function AssetCard({ asset, onQuickView }: { asset: Asset; onQuickView: () => vo
 
       <View style={styles.assetInfoRow}>
         <InfoPill Icon={MapPin} label="Site" value={site?.name ?? '—'} />
-        <InfoPill Icon={User} label="Operator" value={op?.name ?? 'Unassigned'} />
+        <InfoPill Icon={User} label="Operator" value={opName ?? 'Unassigned'} />
       </View>
 
       <View style={styles.assetMetrics}>
@@ -201,7 +201,7 @@ function Metric({ Icon, label, value, color }: { Icon: any; label: string; value
 
 function QuickViewSheet({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const site = siteById(asset.siteId);
-  const op = asset.assignedOperatorId ? operatorById(asset.assignedOperatorId) : undefined;
+  const opName = (asset as any).assignedOperatorName || (asset.assignedOperatorId ? 'Operator' : undefined);
   return (
     <View style={styles.sheetBackdrop}>
       <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
@@ -229,7 +229,7 @@ function QuickViewSheet({ asset, onClose }: { asset: Asset; onClose: () => void 
         <View style={styles.sheetInfo}>
           <InfoPill Icon={MapPin} label="Current Site" value={site?.name ?? '—'} />
           <View style={{ height: SPACING.md }} />
-          <InfoPill Icon={User} label="Assigned Operator" value={op?.name ?? 'Unassigned'} />
+          <InfoPill Icon={User} label="Assigned Operator" value={opName ?? 'Unassigned'} />
           <View style={{ height: SPACING.md }} />
           <InfoPill Icon={Cpu} label="Asset Type" value={asset.assetType} />
         </View>

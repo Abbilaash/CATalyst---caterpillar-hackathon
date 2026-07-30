@@ -113,6 +113,14 @@ async def seed():
         await conn.execute(text("ALTER TABLE assets ADD COLUMN IF NOT EXISTS total_runtime FLOAT DEFAULT 16.0;"))
         await conn.execute(text("ALTER TABLE assignments ADD COLUMN IF NOT EXISTS importance VARCHAR DEFAULT 'medium';"))
         await conn.execute(text("ALTER TABLE assignments ADD COLUMN IF NOT EXISTS priority BOOLEAN DEFAULT FALSE;"))
+        # Rename assigned_operator -> assigned_site_manager in rentals table (idempotent)
+        await conn.execute(text("""
+            DO $$ BEGIN
+                IF EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name='rentals' AND column_name='assigned_operator') THEN
+                    ALTER TABLE rentals RENAME COLUMN assigned_operator TO assigned_site_manager;
+                END IF;
+            END $$;
+        """))
         await conn.execute(text("""
             CREATE TABLE IF NOT EXISTS assignments_queue (
                 queue_id VARCHAR PRIMARY KEY,
@@ -156,18 +164,18 @@ async def seed():
             "op5": OP_ID["op-05"], "op6": OP_ID["op-06"], "op8": OP_ID["op-08"]
         })
 
-        # Insert Rentals
+        # Insert Rentals (assigned_site_manager = the manager who rented the asset)
+        mgr_id = str(manager_user.id)
         await conn.execute(text("""
-            INSERT INTO rentals (rental_id, asset_id, assigned_operator, check_in_time, expected_return, rental_status) VALUES
-            ('rnt-01', 'eq-1', :op1, '2026-07-28 08:00:00', '2026-08-15 18:00:00', 'active'),
-            ('rnt-02', 'eq-2', :op2, '2026-07-28 08:00:00', '2026-08-20 18:00:00', 'active'),
-            ('rnt-03', 'eq-3', :op3, '2026-07-29 08:00:00', '2026-08-10 18:00:00', 'active'),
-            ('rnt-04', 'eq-4', :op4, '2026-07-27 08:00:00', '2026-08-12 18:00:00', 'active'),
-            ('rnt-05', 'eq-6', :op6, '2026-07-29 08:00:00', '2026-08-18 18:00:00', 'active'),
-            ('rnt-06', 'eq-8', :op8, '2026-07-25 08:00:00', '2026-07-30 18:00:00', 'overdue')
+            INSERT INTO rentals (rental_id, asset_id, assigned_site_manager, check_in_time, expected_return, rental_status) VALUES
+            ('rnt-01', 'eq-1', :mid, '2026-07-28 08:00:00', '2026-08-15 18:00:00', 'active'),
+            ('rnt-02', 'eq-2', :mid, '2026-07-28 08:00:00', '2026-08-20 18:00:00', 'active'),
+            ('rnt-03', 'eq-3', :mid, '2026-07-29 08:00:00', '2026-08-10 18:00:00', 'active'),
+            ('rnt-04', 'eq-4', :mid, '2026-07-27 08:00:00', '2026-08-12 18:00:00', 'active'),
+            ('rnt-05', 'eq-6', :mid, '2026-07-29 08:00:00', '2026-08-18 18:00:00', 'active'),
+            ('rnt-06', 'eq-8', :mid, '2026-07-25 08:00:00', '2026-07-30 18:00:00', 'overdue')
         """), {
-            "op1": OP_ID["op-01"], "op2": OP_ID["op-02"], "op3": OP_ID["op-03"],
-            "op4": OP_ID["op-04"], "op6": OP_ID["op-06"], "op8": OP_ID["op-08"]
+            "mid": mgr_id
         })
 
         # Insert Assignments

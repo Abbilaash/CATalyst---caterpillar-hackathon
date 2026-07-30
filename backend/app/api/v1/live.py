@@ -112,7 +112,7 @@ async def get_activity(db: AsyncSession = Depends(get_db)):
                 id=f"ren-{r.rental_id}",
                 type="start",
                 title="Rental Started",
-                detail=f"Operator {r.assigned_operator} checked out asset",
+                detail=f"Manager {r.assigned_site_manager} checked out asset",
                 time=time_ago(r.check_in_time)
             ))
 

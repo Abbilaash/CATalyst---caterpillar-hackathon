@@ -67,7 +67,7 @@ class Rental(Base):
     
     rental_id = Column(String, primary_key=True, default=generate_uuid)
     asset_id = Column(String, ForeignKey("assets.asset_id"))
-    assigned_operator = Column(String) # Mongo operator_id
+    assigned_site_manager = Column(String) # Mongo site_manager user_id
     check_in_time = Column(DateTime)
     check_out_time = Column(DateTime, nullable=True)
     expected_return = Column(DateTime)
