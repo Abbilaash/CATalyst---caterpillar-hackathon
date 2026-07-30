@@ -1,10 +1,11 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
   BarChart, Bar, LineChart, Line, AreaChart, Area, XAxis, YAxis,
   CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
-import { TrendingUp, DollarSign, Activity, CalendarClock } from 'lucide-react';
-import { revenueTrend, utilizationTrend, rentalTrends, demandForecast } from '@/data/mock';
+import { TrendingUp, DollarSign, Activity, CalendarClock, Loader2 } from 'lucide-react';
+import { fetchTrends } from '@/services/api';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
 
 const tooltipStyle = {
@@ -13,13 +14,32 @@ const tooltipStyle = {
 };
 
 export function ForecastPage() {
+  const [trends, setTrends] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchTrends();
+        setTrends(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <PageContainer title="Forecasting">
       <PageHeader title="Forecasting" subtitle="Predictive analytics for demand, revenue, utilization, and rentals." />
-
+      {loading ? (
+        <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+      ) : (
       <div className="grid grid-cols-1 gap-6 xl:grid-cols-2">
         <ChartCard icon={<TrendingUp className="h-5 w-5" />} title="Demand Forecast" subtitle="7-day equipment demand by category" delay={0}>
-          <AreaChart data={demandForecast} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <AreaChart data={trends?.demandForecast || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <defs>
               {[
                 { k: 'Excavators', c: '#FFCD11' }, { k: 'Dozers', c: '#22C55E' },
@@ -44,7 +64,7 @@ export function ForecastPage() {
         </ChartCard>
 
         <ChartCard icon={<DollarSign className="h-5 w-5" />} title="Revenue Trend" subtitle="Monthly revenue vs target ($K)" delay={0.06}>
-          <BarChart data={revenueTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={trends?.revenueTrend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis dataKey="month" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -56,7 +76,7 @@ export function ForecastPage() {
         </ChartCard>
 
         <ChartCard icon={<Activity className="h-5 w-5" />} title="Utilization Trend" subtitle="Weekly utilization vs idle %" delay={0.12}>
-          <LineChart data={utilizationTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <LineChart data={trends?.utilizationTrend || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis dataKey="week" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -68,7 +88,7 @@ export function ForecastPage() {
         </ChartCard>
 
         <ChartCard icon={<CalendarClock className="h-5 w-5" />} title="Rental Trends" subtitle="New, expiring, and renewed rentals per month" delay={0.18}>
-          <BarChart data={rentalTrends} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
+          <BarChart data={trends?.rentalTrends || []} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
             <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
             <XAxis dataKey="month" tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
             <YAxis tick={{ fill: '#8A93A1', fontSize: 11 }} axisLine={false} tickLine={false} />
@@ -80,6 +100,7 @@ export function ForecastPage() {
           </BarChart>
         </ChartCard>
       </div>
+      )}
     </PageContainer>
   );
 }

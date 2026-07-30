@@ -1,24 +1,35 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import {
-  UserPlus,
-  Play,
-  CalendarClock,
-  Sparkles,
-  Wrench,
-  AlertTriangle,
-} from 'lucide-react';
-import { activityTimeline } from '@/data/mock';
+import { Brain, Wrench, Play, UserCheck, Clock, AlertTriangle, Activity, Loader2, Sparkles } from 'lucide-react';
+import { fetchActivity } from '@/services/api';
 
-const iconMap = {
-  assign: { icon: UserPlus, tone: 'text-info bg-info/10' },
-  start: { icon: Play, tone: 'text-ok bg-ok/10' },
-  extend: { icon: CalendarClock, tone: 'text-cat-yellow bg-cat-yellow/10' },
-  ai: { icon: Sparkles, tone: 'text-cat-yellow bg-cat-yellow/10' },
+const iconMap: Record<string, { icon: any; tone: string }> = {
+  ai: { icon: Brain, tone: 'text-cat-yellow bg-cat-yellow/10' },
   maintenance: { icon: Wrench, tone: 'text-info bg-info/10' },
+  start: { icon: Play, tone: 'text-ok bg-ok/10' },
+  assign: { icon: UserCheck, tone: 'text-ink-100 bg-ink-100/10' },
+  extend: { icon: Clock, tone: 'text-warn bg-warn/10' },
   alert: { icon: AlertTriangle, tone: 'text-crit bg-crit/10' },
 };
 
 export function ActivityTimeline() {
+  const [activities, setActivities] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchActivity();
+        setActivities(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <div className="card h-full p-5">
       <div className="mb-4 flex items-center gap-2.5">
@@ -38,31 +49,36 @@ export function ActivityTimeline() {
 
       <div className="relative">
         <div className="absolute left-[15px] top-1 bottom-1 w-px bg-white/[0.06]" />
-        <div className="space-y-4">
-          {activityTimeline.map((e, i) => {
-            const cfg = iconMap[e.type];
-            return (
-              <motion.div
-                key={e.id}
-                initial={{ opacity: 0, x: -10 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ delay: i * 0.08 }}
-                className="relative flex gap-3"
-              >
-                <div
-                  className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${cfg.tone}`}
+        
+        {loading ? (
+            <div className="flex justify-center p-8"><Loader2 className="h-6 w-6 animate-spin text-cat-yellow" /></div>
+        ) : (
+            <div className="space-y-4">
+            {activities.map((e, i) => {
+                const cfg = iconMap[e.type] || { icon: Activity, tone: 'text-ink-100 bg-ink-100/10' };
+                return (
+                <motion.div
+                    key={e.id}
+                    initial={{ opacity: 0, x: -10 }}
+                    animate={{ opacity: 1, x: 0 }}
+                    transition={{ delay: i * 0.08 }}
+                    className="relative flex gap-3"
                 >
-                  <cfg.icon className="h-4 w-4" />
-                </div>
-                <div className="pt-0.5">
-                  <div className="text-sm font-medium text-ink-50">{e.title}</div>
-                  <div className="text-xs text-ink-200">{e.detail}</div>
-                  <div className="mt-0.5 text-[10px] text-ink-200">{e.time}</div>
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
+                    <div
+                    className={`relative z-10 flex h-8 w-8 shrink-0 items-center justify-center rounded-full ${cfg.tone}`}
+                    >
+                    <cfg.icon className="h-4 w-4" />
+                    </div>
+                    <div className="pt-0.5">
+                    <div className="text-sm font-medium text-ink-50">{e.title}</div>
+                    <div className="text-xs text-ink-200">{e.detail}</div>
+                    <div className="mt-0.5 text-[10px] text-ink-200">{e.time}</div>
+                    </div>
+                </motion.div>
+                );
+            })}
+            </div>
+        )}
       </div>
     </div>
   );

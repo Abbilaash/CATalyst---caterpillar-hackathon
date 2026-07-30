@@ -1,7 +1,8 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { motion } from 'framer-motion';
-import { Brain, Check, X, TrendingUp, DollarSign, Sparkles, Filter } from 'lucide-react';
-import { recommendations } from '@/data/mock';
+import { Brain, Check, X, TrendingUp, DollarSign, Sparkles, Filter, Loader2 } from 'lucide-react';
+import { fetchRecommendations } from '@/services/api';
+
 import { Badge, priorityTone } from '@/components/ui/Badge';
 import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
@@ -13,6 +14,22 @@ const priorities = ['All', 'high', 'medium', 'low'];
 export function DecisionCenterPage() {
   const [cat, setCat] = useState('All');
   const [pri, setPri] = useState('All');
+  const [recommendations, setRecommendations] = useState<Recommendation[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const data = await fetchRecommendations();
+        setRecommendations(data);
+      } catch (err) {
+        console.error("Failed to fetch recommendations", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const filtered = useMemo(
     () =>
@@ -105,7 +122,11 @@ export function DecisionCenterPage() {
       </div>
 
       {/* Recommendations grid */}
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="flex justify-center py-16">
+          <Loader2 className="h-8 w-8 animate-spin text-cat-yellow" />
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="card flex flex-col items-center justify-center py-16 text-center">
           <div className="mb-4 flex h-14 w-14 items-center justify-center rounded-2xl bg-ink-500/50 text-ink-200">
             <Brain className="h-6 w-6" />

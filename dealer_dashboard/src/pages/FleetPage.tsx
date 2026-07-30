@@ -1,8 +1,9 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { Search, SlidersHorizontal, ArrowUpDown, Eye, Truck } from 'lucide-react';
-import { equipment } from '@/data/mock';
+import { Search, SlidersHorizontal, ArrowUpDown, Eye, Truck, Loader2 } from 'lucide-react';
+import { fetchEquipment } from '@/services/api';
+
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';
 import { PageContainer, PageHeader, EmptyState } from '@/components/ui/Page';
@@ -20,6 +21,22 @@ export function FleetPage() {
   const [category, setCategory] = useState('All');
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortAsc, setSortAsc] = useState(true);
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const loadData = async () => {
+      try {
+        const data = await fetchEquipment();
+        setEquipment(data);
+      } catch (err) {
+        console.error("Failed to fetch equipment", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadData();
+  }, []);
 
   const filtered = useMemo(() => {
     let r = equipment.filter(
@@ -80,7 +97,11 @@ export function FleetPage() {
         </div>
       </div>
 
-      {filtered.length === 0 ? (
+      {loading ? (
+        <div className="flex justify-center p-12">
+          <Loader2 className="h-8 w-8 animate-spin text-cat-yellow" />
+        </div>
+      ) : filtered.length === 0 ? (
         <div className="card">
           <EmptyState
             icon={<Truck className="h-6 w-6" />}

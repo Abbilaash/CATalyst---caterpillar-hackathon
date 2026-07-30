@@ -1,17 +1,38 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
 import {
-  Building2, Users, Activity, TrendingUp, CloudSun, ShieldAlert, Sparkles,
+  Building2, Users, Activity, TrendingUp, CloudSun, ShieldAlert, Sparkles, Loader2
 } from 'lucide-react';
-import { sites } from '@/data/mock';
+import { fetchSites } from '@/services/api';
 import { Badge } from '@/components/ui/Badge';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
 
 const riskTone = { Low: 'ok', Medium: 'warn', High: 'crit' } as const;
 
 export function SitesPage() {
+  const [sites, setSites] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchSites();
+        setSites(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <PageContainer title="Sites">
       <PageHeader title="Sites" subtitle="Customer job sites with live utilization, demand, and AI guidance." />
+      {loading ? (
+        <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+      ) : (
       <div className="grid grid-cols-1 gap-5 md:grid-cols-2 xl:grid-cols-4">
         {sites.map((s, i) => (
           <motion.div
@@ -68,6 +89,7 @@ export function SitesPage() {
           </motion.div>
         ))}
       </div>
+      )}
     </PageContainer>
   );
 }

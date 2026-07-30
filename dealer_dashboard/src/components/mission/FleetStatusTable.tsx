@@ -1,7 +1,9 @@
+import { useEffect, useState } from 'react';
 import { motion } from 'framer-motion';
-import { Eye, ArrowRight, Activity } from 'lucide-react';
+import { Eye, ArrowRight, Activity, Loader2 } from 'lucide-react';
 import { useNavigate } from 'react-router-dom';
-import { equipment } from '@/data/mock';
+import { fetchEquipment } from '@/services/api';
+
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';
 
@@ -15,6 +17,23 @@ const statusLabel: Record<string, string> = {
 
 export function FleetStatusTable() {
   const navigate = useNavigate();
+  const [equipment, setEquipment] = useState<Equipment[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchEquipment();
+        setEquipment(data);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, []);
+
   return (
     <div className="card overflow-hidden">
       <div className="flex items-center justify-between px-6 pt-5 pb-3">
@@ -43,7 +62,11 @@ export function FleetStatusTable() {
             </tr>
           </thead>
           <tbody>
-            {equipment.map((eq, i) => (
+            {loading ? (
+              <tr>
+                <td colSpan={8} className="py-8 text-center"><Loader2 className="inline h-6 w-6 animate-spin text-cat-yellow" /></td>
+              </tr>
+            ) : equipment.map((eq, i) => (
               <motion.tr
                 key={eq.id}
                 initial={{ opacity: 0 }}

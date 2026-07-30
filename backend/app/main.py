@@ -4,7 +4,7 @@ from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from beanie import init_beanie
 from app.db.mongodb import get_database
 from app.models.mongo.users import User, Operator, SiteManager, Dealer, Notification, LoginHistory
-from app.api.v1 import auth, site_manager, dealer, operator
+from app.api.v1 import auth, site_manager, dealer, operator, equipment, analytics, ai, sites, operators, live
 from app.db.postgres import engine
 from sqlalchemy import text
 
@@ -31,7 +31,18 @@ async def lifespan(app: FastAPI):
     await close_mongo_connection()
     await engine.dispose()
 
+from fastapi.middleware.cors import CORSMiddleware
+
 app = FastAPI(title="Smart Rental Tracking API", lifespan=lifespan)
+
+# Allow React/Vite frontend
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
 
 @app.get("/")
 async def root():
@@ -41,3 +52,9 @@ app.include_router(auth.router, prefix="/api/v1/auth", tags=["Authentication"])
 app.include_router(site_manager.router, prefix="/api/v1/manager", tags=["Site Manager Workflows"])
 app.include_router(dealer.router, prefix="/api/v1/dealer", tags=["Dealer Workflows"])
 app.include_router(operator.router, prefix="/api/v1/operator", tags=["Operator Workflows"])
+app.include_router(equipment.router, prefix="/api/v1/equipment", tags=["Dashboard - Equipment"])
+app.include_router(analytics.router, prefix="/api/v1/analytics", tags=["Dashboard - Analytics"])
+app.include_router(ai.router, prefix="/api/v1/ai", tags=["Dashboard - AI"])
+app.include_router(sites.router, prefix="/api/v1/sites", tags=["Dashboard - Sites"])
+app.include_router(operators.router, prefix="/api/v1/dashboard-operators", tags=["Dashboard - Operators"])
+app.include_router(live.router, prefix="/api/v1/live", tags=["Dashboard - Live"])

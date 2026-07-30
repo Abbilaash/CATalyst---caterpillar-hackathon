@@ -1,13 +1,14 @@
+import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
   ArrowLeft, MapPin, User, Wrench, Clock, Gauge, Sparkles,
-  TrendingUp, AlertTriangle, CalendarClock,
+  TrendingUp, AlertTriangle, CalendarClock, Loader2
 } from 'lucide-react';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { equipment, recommendations } from '@/data/mock';
+import { fetchEquipment, fetchRecommendations } from '@/services/api';
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';
 import { Button } from '@/components/ui/Button';
@@ -39,8 +40,32 @@ const maintenanceTimeline = [
 export function EquipmentDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
-  const eq = equipment.find((e) => e.id === id);
-  const rec = recommendations.find((r) => r.equipmentId === id);
+  const [eq, setEq] = useState<any>(null);
+  const [rec, setRec] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const [eqData, recData] = await Promise.all([fetchEquipment(), fetchRecommendations()]);
+        setEq(eqData.find((e: any) => e.id === id) || null);
+        setRec(recData.find((r: any) => r.equipmentId === id) || null);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    load();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <PageContainer title="Equipment">
+        <div className="flex justify-center p-12"><Loader2 className="h-8 w-8 animate-spin text-cat-yellow" /></div>
+      </PageContainer>
+    );
+  }
 
   if (!eq) {
     return (
