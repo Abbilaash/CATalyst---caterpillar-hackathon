@@ -575,6 +575,19 @@ async def request_machinery(manager_id: str, req: RentalRequestCreate, db: Async
     await db.refresh(new_req)
     return new_req
 
+async def get_next_assignment_id(db: AsyncSession) -> str:
+    res = await db.execute(select(Assignment.assignment_id).where(Assignment.assignment_id.like("asgn-%")))
+    ids = res.scalars().all()
+    max_num = 0
+    for val in ids:
+        try:
+            num = int(val.split("-")[1])
+            if num > max_num:
+                max_num = num
+        except Exception:
+            pass
+    return f"asgn-{max_num + 1:02d}"
+
 @router.post("/assign", response_model=AssignmentResponse)
 async def assign_operator(assignment: SiteManagerAssignmentCreate, db: AsyncSession = Depends(get_db)):
     sm = await SiteManager.find_one()
@@ -623,7 +636,9 @@ async def assign_operator(assignment: SiteManagerAssignmentCreate, db: AsyncSess
             detail=f"Equipment is already scheduled for task '{overlap_asset.job_title}' during this time window."
         )
 
+    next_asg_id = await get_next_assignment_id(db)
     new_assignment = Assignment(
+        assignment_id=next_asg_id,
         asset_id=assignment.asset_id,
         operator_id=assignment.operator_id,
         manager_id=resolved_mgr_id,
@@ -963,12 +978,26 @@ async def auto_assign_preview(req: AutoAssignRequest, db: AsyncSession = Depends
 @router.post("/auto-assign/commit")
 async def auto_assign_commit(req: AutoAssignCommitRequest, db: AsyncSession = Depends(get_db)):
     try:
+        # Get start index for sequential IDs
+        res = await db.execute(select(Assignment.assignment_id).where(Assignment.assignment_id.like("asgn-%")))
+        ids = res.scalars().all()
+        max_num = 0
+        for val in ids:
+            try:
+                num = int(val.split("-")[1])
+                if num > max_num:
+                    max_num = num
+            except Exception:
+                pass
+        next_num = max_num + 1
+
         new_assignments = []
         for prop in req.assignments:
             start_dt = datetime.fromisoformat(prop.start_time)
             end_dt = datetime.fromisoformat(prop.end_time)
             
             new_asg = Assignment(
+                assignment_id=f"asgn-{next_num:02d}",
                 asset_id=prop.asset_id,
                 operator_id=prop.operator_id,
                 manager_id=req.manager_id,
@@ -980,6 +1009,7 @@ async def auto_assign_commit(req: AutoAssignCommitRequest, db: AsyncSession = De
                 priority=prop.priority,
                 assignment_status="active"
             )
+            next_num += 1
             db.add(new_asg)
             new_assignments.append(new_asg)
             
@@ -1134,6 +1164,19 @@ async def process_assignments_queue(manager_id: str, db: AsyncSession):
                 busy_operators[ass.operator_id] = []
             busy_operators[ass.operator_id].append((ass.start_time, ass.end_time))
             
+        # Get starting index for sequential assignment IDs
+        res_ids = await db.execute(select(Assignment.assignment_id).where(Assignment.assignment_id.like("asgn-%")))
+        ids = res_ids.scalars().all()
+        max_num = 0
+        for val in ids:
+            try:
+                num = int(val.split("-")[1])
+                if num > max_num:
+                    max_num = num
+            except Exception:
+                pass
+        next_num = max_num + 1
+
         new_assignments = []
         queued_to_delete = []
         
@@ -1201,6 +1244,7 @@ async def process_assignments_queue(manager_id: str, db: AsyncSession):
             selected_op_id, selected_op_info = candidates_operators[0]
             
             new_asg = Assignment(
+                assignment_id=f"asgn-{next_num:02d}",
                 asset_id=selected_asset.asset_id,
                 operator_id=selected_op_id,
                 manager_id=manager_id,
@@ -1212,6 +1256,7 @@ async def process_assignments_queue(manager_id: str, db: AsyncSession):
                 priority=task.priority,
                 assignment_status="active"
             )
+            next_num += 1
             db.add(new_asg)
             new_assignments.append(new_asg)
             queued_to_delete.append(task)
