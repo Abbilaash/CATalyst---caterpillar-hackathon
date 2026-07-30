@@ -28,48 +28,54 @@ async def get_recommendations(db: AsyncSession = Depends(get_db)):
     now = datetime.utcnow()
     
     # Rule 1: High Idle Hours -> Relocation
-    idle_res = await db.execute(
-        select(Asset, func.sum(Telemetry.idle_hours).label('t_idle'))
-        .join(Telemetry, Telemetry.asset_id == Asset.asset_id)
-        .where(and_(Asset.current_status == 'available', Telemetry.timestamp >= now - timedelta(days=7)))
-        .group_by(Asset.asset_id)
-        .order_by(desc('t_idle'))
-        .limit(2)
-    )
-    for i, (asset, idle_hrs) in enumerate(idle_res.all()):
-        if idle_hrs and idle_hrs > 5:
-            recs.append(RecommendationResponse(
-                id=f"rec-idle-{asset.asset_id}",
-                equipment=asset.asset_name,
-                equipmentId=asset.asset_id,
-                recommendation="Relocate to high-demand site",
-                reason=f"Idle for {int(idle_hrs)} hours this week. Reallocate to prevent revenue loss.",
-                savings=int(idle_hrs * 150),
-                confidence=95 - i,
-                priority="high" if idle_hrs > 20 else "medium",
-                category="Relocation"
-            ))
+    try:
+        idle_res = await db.execute(
+            select(Asset, func.sum(Telemetry.idle_hours).label('t_idle'))
+            .join(Telemetry, Telemetry.asset_id == Asset.asset_id)
+            .where(and_(Asset.current_status == 'available', Telemetry.timestamp >= now - timedelta(days=7)))
+            .group_by(Asset.asset_id)
+            .order_by(desc('t_idle'))
+            .limit(2)
+        )
+        for i, (asset, idle_hrs) in enumerate(idle_res.all()):
+            if idle_hrs and idle_hrs > 5:
+                recs.append(RecommendationResponse(
+                    id=f"rec-idle-{asset.asset_id}",
+                    equipment=asset.asset_name,
+                    equipmentId=asset.asset_id,
+                    recommendation="Relocate to high-demand site",
+                    reason=f"Idle for {int(idle_hrs)} hours this week. Reallocate to prevent revenue loss.",
+                    savings=int(idle_hrs * 150),
+                    confidence=95 - i,
+                    priority="high" if idle_hrs > 20 else "medium",
+                    category="Relocation"
+                ))
+    except Exception as e:
+        print(f"[AI] idle recs error: {e}")
 
     # Rule 2: Critical Engine Events -> Maintenance
-    evt_res = await db.execute(
-        select(Asset, EngineEvent)
-        .join(EngineEvent, EngineEvent.asset_id == Asset.asset_id)
-        .where(and_(EngineEvent.severity == 'critical', EngineEvent.timestamp >= now - timedelta(days=7)))
-        .order_by(desc(EngineEvent.timestamp))
-        .limit(2)
-    )
-    for i, (asset, evt) in enumerate(evt_res.all()):
-        recs.append(RecommendationResponse(
-            id=f"rec-maint-{evt.event_id}",
-            equipment=asset.asset_name,
-            equipmentId=asset.asset_id,
-            recommendation="Schedule preventive maintenance",
-            reason=f"Critical alert: {evt.event_value} detected on {evt.timestamp.strftime('%b %d')}.",
-            savings=5000,
-            confidence=98,
-            priority="high",
-            category="Maintenance"
-        ))
+    try:
+        evt_res = await db.execute(
+            select(Asset, EngineEvent)
+            .join(EngineEvent, EngineEvent.asset_id == Asset.asset_id)
+            .where(and_(EngineEvent.severity == 'critical', EngineEvent.timestamp >= now - timedelta(days=7)))
+            .order_by(desc(EngineEvent.timestamp))
+            .limit(2)
+        )
+        for i, (asset, evt) in enumerate(evt_res.all()):
+            recs.append(RecommendationResponse(
+                id=f"rec-maint-{evt.event_id}",
+                equipment=asset.asset_name,
+                equipmentId=asset.asset_id,
+                recommendation="Schedule preventive maintenance",
+                reason=f"Critical alert: {evt.event_value} detected on {evt.timestamp.strftime('%b %d')}.",
+                savings=5000,
+                confidence=98,
+                priority="high",
+                category="Maintenance"
+            ))
+    except Exception as e:
+        print(f"[AI] maintenance recs error: {e}")
 
     return recs[:5]
 
@@ -135,23 +141,25 @@ async def ask_copilot(req: CopilotRequest, db: AsyncSession = Depends(get_db)):
         reply = f"Fleet snapshot — {rentals} active rentals, {util}% utilization. {idle} units idle, {alerts} critical alerts. ${idle * 1200} revenue at risk. Action required on critical alerts."
 
     elif q == 'Which rentals expire tomorrow?':
-        tomorrow = now + timedelta(days=1)
-        next_day = tomorrow + timedelta(days=1)
-        exp_res = await db.execute(
-            select(Rental, Asset, Site)
-            .join(Asset, Asset.asset_id == Rental.asset_id)
-            .join(Site, Site.site_id == Rental.site_id)
-            .where(and_(Rental.rental_status == 'active', Rental.expected_return >= tomorrow, Rental.expected_return < next_day))
-            .limit(3)
-        )
-        rentals = exp_res.all()
-        if not rentals:
-            reply = "No rentals are scheduled to expire tomorrow."
-        else:
-            lines = []
-            for r, a, s in rentals:
-                lines.append(f"• {a.asset_name} — {s.site_name} (Expires {r.expected_return.strftime('%Y-%m-%d')})")
-            reply = "Rentals expiring within 24h:\n\n" + "\n".join(lines) + "\n\nRecommend proactive renewal outreach."
+        try:
+            tomorrow = now + timedelta(days=1)
+            next_day = tomorrow + timedelta(days=1)
+            exp_res = await db.execute(
+                select(Assignment, Asset)
+                .join(Asset, Asset.asset_id == Assignment.asset_id)
+                .where(and_(Assignment.assignment_status == 'active', Assignment.end_time >= tomorrow, Assignment.end_time < next_day))
+                .limit(3)
+            )
+            assigns = exp_res.all()
+            if not assigns:
+                reply = "No rentals are scheduled to expire tomorrow."
+            else:
+                lines = []
+                for a, asset in assigns:
+                    lines.append(f"• {asset.asset_name} — (Expires {a.end_time.strftime('%Y-%m-%d')})")
+                reply = "Rentals expiring within 24h:\n\n" + "\n".join(lines) + "\n\nRecommend proactive renewal outreach."
+        except Exception:
+            reply = "Unable to query rental expirations at this time."
 
     else:
         reply = "I can analyze fleet utilization, recommend relocations, flag revenue at risk, and surface expiring rentals. Try one of the suggested prompts above."

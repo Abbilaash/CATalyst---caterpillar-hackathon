@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, and_, desc
 from app.db.postgres import get_db
-from app.models.postgres.core import Asset, Rental, Site
+from app.models.postgres.core import Asset, Rental, Site, Assignment
 from app.models.postgres.telemetry import Telemetry, EngineEvent
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -44,6 +44,10 @@ async def get_map_markers(db: AsyncSession = Depends(get_db)):
         if t.asset_id not in tel_latest_map or t.timestamp > tel_latest_map[t.asset_id].timestamp:
             tel_latest_map[t.asset_id] = t
             
+    # Bulk fetch active assignments to find site for each asset
+    assign_res = await db.execute(select(Assignment).where(Assignment.assignment_status.in_(['active', 'scheduled'])))
+    assign_map = {a.asset_id: a for a in assign_res.scalars().all()}
+
     markers = []
     for asset in assets:
         ui_status = "idle"
@@ -52,7 +56,8 @@ async def get_map_markers(db: AsyncSession = Depends(get_db)):
         elif asset.current_status == "maintenance":
             ui_status = "maintenance"
             
-        site_name = sites_map.get(asset.current_site_id, "Dealer Yard")
+        assign = assign_map.get(asset.asset_id)
+        site_name = sites_map.get(assign.site_id, "Dealer Yard") if assign and assign.site_id else "Dealer Yard"
                 
         tel = tel_latest_map.get(asset.asset_id)
         

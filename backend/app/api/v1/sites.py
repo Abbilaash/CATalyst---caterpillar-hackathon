@@ -29,36 +29,52 @@ async def get_all_sites(db: AsyncSession = Depends(get_db)):
     response_data = []
     
     for site in sites:
-        # Count total machines at this site
-        asset_res = await db.execute(select(func.count(Asset.asset_id)).where(Asset.current_site_id == site.site_id))
-        machine_count = asset_res.scalar() or 0
-        
-        # Count active rentals at this site
-        active_rentals_res = await db.execute(
-            select(func.count(Rental.rental_id)).where(
-                and_(Rental.site_id == site.site_id, Rental.rental_status == 'active')
+        # Count total machines currently assigned to this site
+        try:
+            asset_res = await db.execute(
+                select(func.count(func.distinct(Assignment.asset_id)))
+                .where(
+                    and_(
+                        Assignment.site_id == site.site_id,
+                        Assignment.assignment_status.in_(["active", "scheduled"])
+                    )
+                )
             )
-        )
-        active_rentals = active_rentals_res.scalar() or 0
+            machine_count = asset_res.scalar() or 0
+        except Exception:
+            machine_count = 0
+        
+        # Count active rentals at this site (using Assignments since Rental.site_id doesn't exist)
+        try:
+            active_rentals_res = await db.execute(
+                select(func.count(func.distinct(Assignment.assignment_id))).where(
+                    and_(Assignment.site_id == site.site_id, Assignment.assignment_status == 'active')
+                )
+            )
+            active_rentals = active_rentals_res.scalar() or 0
+        except Exception:
+            active_rentals = 0
         
         utilization = 0
         if machine_count > 0:
             utilization = int((active_rentals / machine_count) * 100)
 
-        # Count operators (distinct operators on active rentals at site)
-        # Using a simple subquery or just counting rentals since 1 rental = 1 operator in our schema mostly
+        # Count operators
         operators_count = active_rentals
         
         # Upcoming demand: latest pending rental request for this site
         upcoming = "None"
-        req_res = await db.execute(
-            select(RentalRequest).where(
-                and_(RentalRequest.site_id == site.site_id, RentalRequest.status == 'pending')
-            ).order_by(desc(RentalRequest.created_at)).limit(1)
-        )
-        req = req_res.scalar_one_or_none()
-        if req:
-            upcoming = f"{req.equipment_type} +1"
+        try:
+            req_res = await db.execute(
+                select(RentalRequest).where(
+                    and_(RentalRequest.site_id == site.site_id, RentalRequest.status == 'pending')
+                ).order_by(desc(RentalRequest.created_at)).limit(1)
+            )
+            req = req_res.scalar_one_or_none()
+            if req:
+                upcoming = f"{req.equipment_type} +1"
+        except Exception:
+            pass
 
         # Risk Level and AI Action based on utilization
         if utilization > 90:

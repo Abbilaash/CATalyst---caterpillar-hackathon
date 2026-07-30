@@ -66,7 +66,6 @@ class Rental(Base):
     
     rental_id = Column(String, primary_key=True, default=generate_uuid)
     asset_id = Column(String, ForeignKey("assets.asset_id"))
-    site_id = Column(String, ForeignKey("sites.site_id"))
     assigned_operator = Column(String) # Mongo operator_id
     check_in_time = Column(DateTime)
     check_out_time = Column(DateTime, nullable=True)
@@ -76,7 +75,6 @@ class Rental(Base):
     remarks = Column(Text, nullable=True)
 
     asset = relationship("Asset", back_populates="rentals")
-    site = relationship("Site")
 
 class Assignment(Base):
     __tablename__ = "assignments"
