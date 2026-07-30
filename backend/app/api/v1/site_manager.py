@@ -95,7 +95,6 @@ class AssetScheduleInfo(BaseModel):
     asset_name: str
     equipment_type: str
     model: str
-    current_site_id: Optional[str]
     current_status: str
     total_engine_hours: float
 
@@ -128,6 +127,7 @@ class SchedulingDataResponse(BaseModel):
 class SiteManagerAssignmentCreate(BaseModel):
     asset_id: str
     operator_id: str
+    site_id: str
     job_title: str
     start_date: str    # "YYYY-MM-DD"
     start_time: str    # "HH:MM"
@@ -145,6 +145,7 @@ class AutoAssignTaskItem(BaseModel):
 
 class AutoAssignRequest(BaseModel):
     manager_id: str
+    site_id: str
     tasks: List[AutoAssignTaskItem]
     strategy: str # "any" | "fcfs"
 
@@ -269,7 +270,7 @@ async def get_dashboard(manager_id: str, db: AsyncSession = Depends(get_db)):
             site_name = first_site.site_name
 
     try:
-        assets_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+        assets_res = await db.execute(select(Asset).where(Asset.assigned_site_manager.is_not(None)))
         assets = assets_res.scalars().all()
         total_assets = len(assets)
         
@@ -279,7 +280,7 @@ async def get_dashboard(manager_id: str, db: AsyncSession = Depends(get_db)):
         
         rentals_res = await db.execute(
             select(Rental).join(Asset).where(
-                Asset.current_site_id.in_(site_ids),
+                Asset.assigned_site_manager.is_not(None),
                 Rental.rental_status == "active"
             )
         )
@@ -357,7 +358,7 @@ async def get_assets(manager_id: str, db: AsyncSession = Depends(get_db)):
     site_ids = await get_manager_site_ids(manager_id)
     
     try:
-        assets_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+        assets_res = await db.execute(select(Asset).where(Asset.assigned_site_manager.is_not(None)))
         db_assets = assets_res.scalars().all()
         
         if not db_assets:
@@ -398,8 +399,8 @@ async def get_assets(manager_id: str, db: AsyncSession = Depends(get_db)):
                 rentalId="RNT-1002",
                 rentalStatus="active" if a.current_status == "rented" or a.current_status == "working" else "completed",
                 status=a.current_status if a.current_status in ["working", "idle", "maintenance", "available"] else "available",
-                siteId=a.current_site_id or "",
-                siteName=sites_map.get(a.current_site_id, "Quarry Site"),
+                siteId="",
+                siteName="All Sites",
                 assignedOperatorId=op_id,
                 assignedOperatorName=op_name,
                 healthScore=90,
@@ -438,7 +439,7 @@ async def get_operations(manager_id: str, db: AsyncSession = Depends(get_db)):
         for ass in assignments:
             asset_res = await db.execute(select(Asset).where(Asset.asset_id == ass.asset_id))
             asset = asset_res.scalar_one_or_none()
-            if not asset or asset.current_site_id not in site_ids:
+            if not asset:
                 continue
 
             # Calculate progress percentage dynamically
@@ -578,7 +579,7 @@ async def get_profile(manager_id: str, db: AsyncSession = Depends(get_db)):
 
     assets_count = 0
     try:
-        assets_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+        assets_res = await db.execute(select(Asset).where(Asset.assigned_site_manager.is_not(None)))
         assets_count = len(assets_res.scalars().all())
     except Exception:
         pass
@@ -730,7 +731,7 @@ async def get_scheduling_data(manager_id: str, db: AsyncSession = Depends(get_db
     
     # --- Assets from PostgreSQL ---
     asset_result = await db.execute(
-        select(Asset).where(Asset.current_site_id.in_(site_ids))
+        select(Asset).where(Asset.assigned_site_manager.is_not(None))
     )
     db_assets = asset_result.scalars().all()
     asset_map = {a.asset_id: a for a in db_assets}
@@ -774,7 +775,7 @@ async def get_scheduling_data(manager_id: str, db: AsyncSession = Depends(get_db
     existing_assignments_list = []
     for assign in all_active_assignments:
         asset = asset_map.get(assign.asset_id)
-        if not asset or asset.current_site_id not in site_ids:
+        if not asset:
             continue
         existing_assignments_list.append(AssignmentInfo(
             assignment_id=assign.assignment_id,
@@ -787,7 +788,7 @@ async def get_scheduling_data(manager_id: str, db: AsyncSession = Depends(get_db
             start_time=assign.start_time.isoformat() if assign.start_time else datetime.utcnow().isoformat(),
             end_time=assign.end_time.isoformat() if assign.end_time else (datetime.utcnow() + timedelta(hours=8)).isoformat(),
             status=assign.assignment_status,
-            site_id=asset.current_site_id if asset else ""
+            site_id=assign.site_id
         ))
 
     # --- Assets ---
@@ -800,7 +801,7 @@ async def get_scheduling_data(manager_id: str, db: AsyncSession = Depends(get_db
             asset_name=asset.asset_name,
             equipment_type=asset.equipment_type or "",
             model=asset.model or "",
-            current_site_id=asset.current_site_id,
+            
             current_status=asset.current_status or "",
             total_engine_hours=asset.total_engine_hours or 0.0
         )
@@ -834,7 +835,7 @@ async def auto_assign_preview(req: AutoAssignRequest, db: AsyncSession = Depends
     site_ids = await get_manager_site_ids(req.manager_id)
     
     # 1. Fetch assets
-    asset_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+    asset_res = await db.execute(select(Asset).where(Asset.assigned_site_manager.is_not(None)))
     db_assets = asset_res.scalars().all()
     
     # 2. Fetch operators
@@ -1167,7 +1168,7 @@ async def process_assignments_queue(manager_id: str, db: AsyncSession):
             return
             
         # 3. Fetch assets
-        asset_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+        asset_res = await db.execute(select(Asset).where(Asset.assigned_site_manager.is_not(None)))
         db_assets = asset_res.scalars().all()
         
         # 4. Fetch operators

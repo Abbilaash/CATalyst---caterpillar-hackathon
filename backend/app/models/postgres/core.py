@@ -18,7 +18,7 @@ class Site(Base):
     manager_id = Column(String) # From Mongo
     status = Column(String, default="active")
     
-    assets = relationship("Asset", back_populates="current_site")
+    assignments = relationship("Assignment", back_populates="site")
 
 class Asset(Base):
     __tablename__ = "assets"
@@ -33,7 +33,6 @@ class Asset(Base):
     serial_number = Column(String, unique=True)
     purchase_year = Column(Integer)
     engine_type = Column(String)
-    current_site_id = Column(String, ForeignKey("sites.site_id"), nullable=True)
     current_status = Column(String, default="available") # rented, available, maintenance
     total_engine_hours = Column(Float, default=0.0)
     fuel_capacity = Column(Float)
@@ -43,7 +42,6 @@ class Asset(Base):
     assigned_site_manager = Column(String, nullable=True)
     total_runtime = Column(Float, default=16.0) # Maximum runtime allowed per 24 hours
 
-    current_site = relationship("Site", back_populates="assets")
     rentals = relationship("Rental", back_populates="asset")
     assignments = relationship("Assignment", back_populates="asset")
     maintenance_logs = relationship("MaintenanceLog", back_populates="asset")
@@ -84,6 +82,7 @@ class Assignment(Base):
     asset_id = Column(String, ForeignKey("assets.asset_id"))
     operator_id = Column(String) # Mongo ID
     manager_id = Column(String) # Mongo ID
+    site_id = Column(String, ForeignKey("sites.site_id"))
     job_title = Column(String)
     job_description = Column(Text)
     start_time = Column(DateTime, nullable=False)
@@ -93,6 +92,7 @@ class Assignment(Base):
     priority = Column(Boolean, default=False)
 
     asset = relationship("Asset", back_populates="assignments")
+    site = relationship("Site", back_populates="assignments")
 
 class QRScanLog(Base):
     __tablename__ = "qr_scan_logs"

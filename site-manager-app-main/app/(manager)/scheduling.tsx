@@ -202,10 +202,29 @@ export default function ManagerScheduling() {
     loadData();
   }, [managerId]);
 
-  // Gantt shows only assets belonging to the currently selected site
+  // Gantt shows assets that are either:
+  // 1. Assigned to THIS site within the timeline
+  // 2. Completely free (NO assignments across ANY site in timeline)
   const siteAssets = useMemo(() => {
-    return rentedAssets.filter(a => a.siteId === activeSiteId);
-  }, [rentedAssets, activeSiteId]);
+    const startMs = timelineStart.getTime();
+    const endMs = timelineEnd.getTime();
+
+    return rentedAssets.filter(asset => {
+      // Find assignments for this asset in the 28h window
+      const assetAssignments = assignments.filter(a => {
+        if (a.assetId !== asset.id) return false;
+        const asgStart = new Date(a.startTime).getTime();
+        const asgEnd = new Date(a.endTime).getTime();
+        return asgEnd > startMs && asgStart < endMs;
+      });
+
+      // If no assignments in window, it's free, show everywhere
+      if (assetAssignments.length === 0) return true;
+
+      // If it has assignments in window, only show if AT LEAST ONE assignment is for the active site
+      return assetAssignments.some(asg => asg.siteId === activeSiteId);
+    });
+  }, [rentedAssets, assignments, activeSiteId, timelineStart, timelineEnd]);
 
   const siteOperators = useMemo(() => {
     return allOperators.filter(op => {
