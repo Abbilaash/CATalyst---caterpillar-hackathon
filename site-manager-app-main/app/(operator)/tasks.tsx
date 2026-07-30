@@ -9,7 +9,6 @@ import { OperatorShell } from '@/components/OperatorShell';
 import { AppHeader } from '@/components/AppHeader';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
-import { ProgressBar } from '@/components/ProgressBar';
 import { Fab } from '@/components/Fab';
 import { EmptyState } from '@/components/States';
 import { CURRENT_TASKS, assetByMachineId } from '@/data/mock';
@@ -30,8 +29,8 @@ export default function OperatorTasks() {
 
   const filtered = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
 
-  const updateStatus = (id: string, status: TaskStatus, progress?: number) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status, progress: progress ?? t.progress } : t)));
+  const updateStatus = (id: string, status: TaskStatus) => {
+    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
   };
 
   return (
@@ -60,9 +59,9 @@ export default function OperatorTasks() {
                 <TaskCard
                   key={task.id}
                   task={task}
-                  onStart={() => updateStatus(task.id, 'in_progress', task.progress > 0 ? task.progress : 5)}
+                  onStart={() => updateStatus(task.id, 'in_progress')}
                   onPause={() => updateStatus(task.id, 'paused')}
-                  onComplete={() => updateStatus(task.id, 'completed', 100)}
+                  onComplete={() => updateStatus(task.id, 'completed')}
                 />
               ))}
             </View>
@@ -111,11 +110,7 @@ function TaskCard({
         </View>
       </View>
 
-      {(isActive || isPaused || isCompleted) && (
-        <View style={styles.progressWrap}>
-          <ProgressBar value={task.progress} color={isCompleted ? PALETTE.success : accent} showLabel />
-        </View>
-      )}
+
 
       <View style={styles.taskActions}>
         {!isCompleted && !isActive && (
@@ -125,7 +120,7 @@ function TaskCard({
           <ActionButton icon={<Pause size={15} color={PALETTE.textPrimary} strokeWidth={2.6} />} label="Pause" outline onPress={onPause} />
         )}
         {!isCompleted && (
-          <ActionButton icon={<Check size={15} color={PALETTE.success} strokeWidth={2.6} />} label="Complete" outline accent={PALETTE.success} onPress={onComplete} disabled={!isActive && !isPaused && task.progress === 0} />
+          <ActionButton icon={<Check size={15} color={PALETTE.success} strokeWidth={2.6} />} label="Complete" outline accent={PALETTE.success} onPress={onComplete} disabled={!isActive && !isPaused} />
         )}
       </View>
     </Card>

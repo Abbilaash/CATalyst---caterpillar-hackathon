@@ -11,7 +11,7 @@ import { OperatorShell } from '@/components/OperatorShell';
 import { AppHeader } from '@/components/AppHeader';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
-import { ProgressBar } from '@/components/ProgressBar';
+
 import { AlertBanner } from '@/components/AlertBanner';
 import { EquipmentImage } from '@/components/EquipmentImage';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
@@ -123,7 +123,7 @@ export default function OperatorHome() {
               {inProgressTask && (
                 <View style={styles.taskInline}>
                   <Text style={styles.taskInlineTitle} numberOfLines={1}>{inProgressTask.name}</Text>
-                  <ProgressBar value={inProgressTask.progress} showLabel />
+
                 </View>
               )}
             </Card>
