@@ -56,3 +56,29 @@ export const askCopilot = async (query: string) => {
   const response = await api.post('/ai/copilot', { query });
   return response.data.reply;
 };
+
+export const fetchMaintenanceLogs = async (assetId: string) => {
+  const response = await api.get(`/equipment/${assetId}/maintenance`);
+  return response.data;
+};
+
+// ─── Alerts API ───
+export const fetchAlerts = async (role = 'dealer') => {
+  const response = await api.get(`/alerts?role=${role}`);
+  return response.data;
+};
+
+export const markAlertRead = async (id: string) => {
+  const response = await api.patch(`/alerts/${id}/read`);
+  return response.data;
+};
+
+export const dismissAlert = async (id: string) => {
+  const response = await api.patch(`/alerts/${id}/dismiss`);
+  return response.data;
+};
+
+export const markAllAlertsRead = async (role = 'dealer') => {
+  const response = await api.patch(`/alerts/read-all?role=${role}`);
+  return response.data;
+};

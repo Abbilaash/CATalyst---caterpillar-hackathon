@@ -6,7 +6,7 @@ from typing import List, Optional
 from datetime import datetime, timedelta
 
 from app.db.postgres import get_db
-from app.models.postgres.core import Site, Asset, RentalRequest, Assignment, Rental
+from app.models.postgres.core import Site, Asset, RentalRequest, Assignment, Rental, AssignmentQueue
 from app.schemas.workflows import RentalRequestCreate, RentalRequestResponse, AssignmentResponse
 from app.models.mongo.users import User, SiteManager, Operator
 from bson import ObjectId
@@ -133,6 +133,52 @@ class SiteManagerAssignmentCreate(BaseModel):
     start_time: str    # "HH:MM"
     total_hours: float # e.g. 10.0 or 1.5
 
+class AutoAssignTaskItem(BaseModel):
+    equipment_type: str
+    job_title: str
+    job_description: Optional[str] = None
+    start_date: str # "YYYY-MM-DD"
+    start_time: str # "HH:MM"
+    total_hours: float
+    importance: str # "high", "medium", "low"
+    priority: bool
+
+class AutoAssignRequest(BaseModel):
+    manager_id: str
+    tasks: List[AutoAssignTaskItem]
+    strategy: str # "any" | "fcfs"
+
+class AutoAssignCommitItem(BaseModel):
+    asset_id: str
+    operator_id: str
+    job_title: str
+    job_description: Optional[str] = None
+    start_time: str # ISO string
+    end_time: str   # ISO string
+    importance: str
+    priority: bool
+
+class AutoAssignCommitRequest(BaseModel):
+    manager_id: str
+    assignments: List[AutoAssignCommitItem]
+
+class QueueTasksRequest(BaseModel):
+    manager_id: str
+    tasks: List[AutoAssignTaskItem]
+
+class QueuedTaskResponseItem(BaseModel):
+    queue_id: str
+    manager_id: str
+    equipment_type: str
+    job_title: str
+    job_description: Optional[str] = None
+    start_time: str
+    end_time: str
+    total_hours: float
+    importance: str
+    priority: bool
+    created_at: str
+
 # --- Helper Site Manager Resolver ---
 async def get_site_manager(manager_id: str) -> Optional[SiteManager]:
     try:
@@ -182,7 +228,12 @@ async def get_dashboard(manager_id: str, db: AsyncSession = Depends(get_db)):
         idle = sum(1 for a in assets if a.current_status == "idle")
         maintenance = sum(1 for a in assets if a.current_status == "maintenance")
         
-        rentals_res = await db.execute(select(Rental).where(Rental.site_id.in_(site_ids), Rental.rental_status == "active"))
+        rentals_res = await db.execute(
+            select(Rental).join(Asset).where(
+                Asset.current_site_id.in_(site_ids),
+                Rental.rental_status == "active"
+            )
+        )
         active_rentals = len(rentals_res.scalars().all())
 
         now = datetime.utcnow()
@@ -284,7 +335,7 @@ async def get_assets(manager_id: str, db: AsyncSession = Depends(get_db)):
                     Assignment.assignment_status == "active"
                 )
             )
-            active_assign = assign_res.scalar_one_or_none()
+            active_assign = assign_res.scalars().first()
             if active_assign:
                 op_id = active_assign.operator_id
                 op_name = op_map.get(op_id, "Operator")
@@ -317,9 +368,9 @@ async def get_operations(manager_id: str, db: AsyncSession = Depends(get_db)):
     site_ids = await get_manager_site_ids(manager_id)
     
     try:
-        # Retrieve all active/scheduled/paused assignments
+        # Retrieve all active/scheduled/paused/completed assignments
         result = await db.execute(
-            select(Assignment).where(Assignment.assignment_status.in_(["active", "scheduled", "paused"]))
+            select(Assignment).where(Assignment.assignment_status.in_(["active", "scheduled", "paused", "completed"]))
         )
         assignments = result.scalars().all()
         
@@ -372,7 +423,7 @@ async def get_operations(manager_id: str, db: AsyncSession = Depends(get_db)):
                 operatorId=ass.operator_id,
                 operatorName=op_map.get(ass.operator_id, "Operator"),
                 priority=priority,
-                status="in_progress" if ass.assignment_status == "active" else "paused",
+                status="completed" if ass.assignment_status == "completed" else ("in_progress" if ass.assignment_status == "active" else "paused"),
                 progress=progress,
                 expectedCompletion=ass.end_time.strftime("%H:%M")
             ))
@@ -407,6 +458,10 @@ async def complete_operation(assignment_id: str, db: AsyncSession = Depends(get_
             pass
 
         await db.commit()
+        
+        # Trigger background queue check since resources are released!
+        await process_assignments_queue(assignment.manager_id, db)
+        
         return {"status": "success", "message": "Operation marked complete and equipment released"}
     except HTTPException:
         raise
@@ -424,6 +479,35 @@ async def reassign_operation(assignment_id: str, operator_id: str, db: AsyncSess
         assignment.operator_id = operator_id
         await db.commit()
         return {"status": "success", "message": f"Operation successfully reassigned to operator {operator_id}"}
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/operations/{assignment_id}")
+async def delete_operation(assignment_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        result = await db.execute(select(Assignment).where(Assignment.assignment_id == assignment_id))
+        assignment = result.scalar_one_or_none()
+        if not assignment:
+            raise HTTPException(status_code=404, detail="Operation not found")
+        
+        # Free the associated asset
+        asset_res = await db.execute(select(Asset).where(Asset.asset_id == assignment.asset_id))
+        asset = asset_res.scalar_one_or_none()
+        if asset:
+            asset.current_status = "available"
+            
+        try:
+            from bson import ObjectId as BsonObjId
+            op_oid = BsonObjId(assignment.operator_id)
+            await Operator.find_one({"user.$id": op_oid}).update({"$set": {"status": "available"}})
+        except Exception:
+            pass
+            
+        await db.delete(assignment)
+        await db.commit()
+        return {"status": "success", "message": "Operation successfully deleted"}
     except HTTPException:
         raise
     except Exception as e:
@@ -507,6 +591,36 @@ async def assign_operator(assignment: SiteManagerAssignmentCreate, db: AsyncSess
         raise HTTPException(
             status_code=status.HTTP_400_BAD_REQUEST,
             detail="Invalid date or time format. start_date must be YYYY-MM-DD and start_time must be HH:MM."
+        )
+
+    # Check for overlapping assignments for the same operator
+    overlap_op_stmt = select(Assignment).where(
+        Assignment.operator_id == assignment.operator_id,
+        Assignment.assignment_status.in_(["active", "scheduled"]),
+        Assignment.start_time < end_dt,
+        Assignment.end_time > start_dt
+    )
+    overlap_op_res = await db.execute(overlap_op_stmt)
+    overlap_op = overlap_op_res.scalar_one_or_none()
+    if overlap_op:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Operator is already assigned to task '{overlap_op.job_title}' during this time window."
+        )
+
+    # Check for overlapping assignments for the same asset
+    overlap_asset_stmt = select(Assignment).where(
+        Assignment.asset_id == assignment.asset_id,
+        Assignment.assignment_status.in_(["active", "scheduled"]),
+        Assignment.start_time < end_dt,
+        Assignment.end_time > start_dt
+    )
+    overlap_asset_res = await db.execute(overlap_asset_stmt)
+    overlap_asset = overlap_asset_res.scalar_one_or_none()
+    if overlap_asset:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Equipment is already scheduled for task '{overlap_asset.job_title}' during this time window."
         )
 
     new_assignment = Assignment(
@@ -647,3 +761,486 @@ async def get_scheduling_data(manager_id: str, db: AsyncSession = Depends(get_db
         free_assets=free_assets_list,
         existing_assignments=existing_assignments_list
     )
+
+def is_operator_certified_python(op_certs: List[str], asset_type: str) -> bool:
+    certs = [c.lower() for c in op_certs]
+    type_str = asset_type.lower()
+    if 'excavator' in type_str: return 'excavator' in certs
+    if 'dozer' in type_str: return 'dozer' in certs
+    if 'loader' in type_str: return 'loader' in certs
+    if 'grader' in type_str: return 'grader' in certs
+    if 'scraper' in type_str: return 'scraper' in certs
+    if 'truck' in type_str: return 'truck' in certs or 'scraper' in certs
+    if 'compactor' in type_str: return 'compactor' in certs
+    return any(c in type_str for c in certs)
+
+@router.post("/auto-assign/preview")
+async def auto_assign_preview(req: AutoAssignRequest, db: AsyncSession = Depends(get_db)):
+    site_ids = await get_manager_site_ids(req.manager_id)
+    
+    # 1. Fetch assets
+    asset_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+    db_assets = asset_res.scalars().all()
+    
+    # 2. Fetch operators
+    mongo_operators = await Operator.find({"assigned_site_id": {"$in": site_ids}}).to_list()
+    op_map = {}
+    for o in mongo_operators:
+        user = await User.get(o.user.ref.id)
+        if user:
+            op_map[str(user.id)] = {
+                "name": user.name,
+                "experience_years": o.experience_years,
+                "certified_equipment_types": getattr(o, "certified_equipment_types", [])
+            }
+            
+    # 3. Fetch existing assignments
+    existing_res = await db.execute(
+        select(Assignment).where(Assignment.assignment_status.in_(["active", "scheduled"]))
+    )
+    existing_assigns = existing_res.scalars().all()
+    
+    # 4. Initialize busy slots track
+    busy_assets = {}
+    busy_operators = {}
+    
+    for ass in existing_assigns:
+        if ass.asset_id not in busy_assets:
+            busy_assets[ass.asset_id] = []
+        busy_assets[ass.asset_id].append((ass.start_time, ass.end_time))
+        
+        if ass.operator_id not in busy_operators:
+            busy_operators[ass.operator_id] = []
+        busy_operators[ass.operator_id].append((ass.start_time, ass.end_time))
+        
+    # 5. Parse tasks
+    tasks_to_schedule = []
+    for idx, t in enumerate(req.tasks):
+        try:
+            start_dt = datetime.strptime(f"{t.start_date} {t.start_time}", "%Y-%m-%d %H:%M")
+            end_dt = start_dt + timedelta(hours=t.total_hours)
+            tasks_to_schedule.append({
+                "index": idx,
+                "equipment_type": t.equipment_type,
+                "job_title": t.job_title,
+                "job_description": t.job_description,
+                "start_time": start_dt,
+                "end_time": end_dt,
+                "total_hours": t.total_hours,
+                "importance": t.importance,
+                "priority": t.priority
+            })
+        except Exception:
+            raise HTTPException(status_code=400, detail="Invalid date/time in batch tasks.")
+            
+    # 6. Apply strategy sorting
+    if req.strategy == "fcfs":
+        pass
+    else:
+        # Sort by priority desc (True first), then importance (high -> medium -> low)
+        importance_rank = {"high": 3, "medium": 2, "low": 1}
+        tasks_to_schedule.sort(
+            key=lambda k: (1 if k["priority"] else 0, importance_rank.get(k["importance"], 0)),
+            reverse=True
+        )
+        
+    proposed_assignments = []
+    unassigned_tasks = []
+    
+    for task in tasks_to_schedule:
+        task_start = task["start_time"]
+        task_end = task["end_time"]
+        task_day = task_start.date()
+        
+        # 6a. Find candidate assets
+        candidates_assets = []
+        for a in db_assets:
+            if a.equipment_type.lower() != task["equipment_type"].lower():
+                continue
+            
+            # Check overlap
+            has_overlap = False
+            for b_start, b_end in busy_assets.get(a.asset_id, []):
+                if task_start < b_end and task_end > b_start:
+                    has_overlap = True
+                    break
+            if has_overlap:
+                continue
+                
+            # Check 24h runtime limit
+            scheduled_durations = 0.0
+            for ass in existing_assigns:
+                if ass.asset_id == a.asset_id and ass.start_time.date() == task_day:
+                    scheduled_durations += (ass.end_time - ass.start_time).total_seconds() / 3600.0
+            for prop in proposed_assignments:
+                if prop["asset_id"] == a.asset_id and prop["start_time"].date() == task_day:
+                    scheduled_durations += prop["total_hours"]
+                    
+            limit = getattr(a, "total_runtime", 16.0) or 16.0
+            if scheduled_durations + task["total_hours"] > limit:
+                continue
+                
+            candidates_assets.append(a)
+            
+        # 6b. Find candidate operators
+        candidates_operators = []
+        for op_id, op_info in op_map.items():
+            if not is_operator_certified_python(op_info["certified_equipment_types"], task["equipment_type"]):
+                continue
+                
+            has_overlap = False
+            for b_start, b_end in busy_operators.get(op_id, []):
+                if task_start < b_end and task_end > b_start:
+                    has_overlap = True
+                    break
+            if has_overlap:
+                continue
+                
+            candidates_operators.append((op_id, op_info))
+            
+        # 6c. Match asset & operator
+        if not candidates_assets or not candidates_operators:
+            unassigned_tasks.append({
+                "job_title": task["job_title"],
+                "equipment_type": task["equipment_type"],
+                "start_time": task_start.isoformat(),
+                "end_time": task_end.isoformat(),
+                "reason": "No available equipment or certified operators during this slot."
+            })
+            continue
+            
+        # Sort operators by experience: higher experience first if high importance/priority
+        if task["importance"] == "high" or task["priority"]:
+            candidates_operators.sort(key=lambda o: o[1]["experience_years"], reverse=True)
+        else:
+            candidates_operators.sort(key=lambda o: o[1]["experience_years"])
+            
+        selected_asset = candidates_assets[0]
+        selected_op_id, selected_op_info = candidates_operators[0]
+        
+        proposed_assignments.append({
+            "asset_id": selected_asset.asset_id,
+            "asset_name": selected_asset.asset_name,
+            "operator_id": selected_op_id,
+            "operator_name": selected_op_info["name"],
+            "job_title": task["job_title"],
+            "job_description": task["job_description"] or "",
+            "start_time": task_start,
+            "end_time": task_end,
+            "total_hours": task["total_hours"],
+            "importance": task["importance"],
+            "priority": task["priority"]
+        })
+        
+        if selected_asset.asset_id not in busy_assets:
+            busy_assets[selected_asset.asset_id] = []
+        busy_assets[selected_asset.asset_id].append((task_start, task_end))
+        
+        if selected_op_id not in busy_operators:
+            busy_operators[selected_op_id] = []
+        busy_operators[selected_op_id].append((task_start, task_end))
+        
+    serialized_proposed = []
+    for prop in proposed_assignments:
+        serialized_proposed.append({
+            "asset_id": prop["asset_id"],
+            "asset_name": prop["asset_name"],
+            "operator_id": prop["operator_id"],
+            "operator_name": prop["operator_name"],
+            "job_title": prop["job_title"],
+            "job_description": prop["job_description"],
+            "start_time": prop["start_time"].isoformat(),
+            "end_time": prop["end_time"].isoformat(),
+            "importance": prop["importance"],
+            "priority": prop["priority"]
+        })
+        
+    return {
+        "assignments": serialized_proposed,
+        "unassigned_tasks": unassigned_tasks
+    }
+
+@router.post("/auto-assign/commit")
+async def auto_assign_commit(req: AutoAssignCommitRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        new_assignments = []
+        for prop in req.assignments:
+            start_dt = datetime.fromisoformat(prop.start_time)
+            end_dt = datetime.fromisoformat(prop.end_time)
+            
+            new_asg = Assignment(
+                asset_id=prop.asset_id,
+                operator_id=prop.operator_id,
+                manager_id=req.manager_id,
+                job_title=prop.job_title,
+                job_description=prop.job_description or "",
+                start_time=start_dt,
+                end_time=end_dt,
+                importance=prop.importance,
+                priority=prop.priority,
+                assignment_status="active"
+            )
+            db.add(new_asg)
+            new_assignments.append(new_asg)
+            
+            # Update asset status
+            asset_res = await db.execute(select(Asset).where(Asset.asset_id == prop.asset_id))
+            asset = asset_res.scalar_one_or_none()
+            if asset:
+                asset.current_status = "working"
+                
+            # Update operator status
+            try:
+                from bson import ObjectId as BsonObjId
+                op_oid = BsonObjId(prop.operator_id)
+                await Operator.find_one({"user.$id": op_oid}).update({"$set": {"status": "on_duty"}})
+            except Exception:
+                pass
+                
+        await db.commit()
+        return {"status": "success", "message": f"Successfully committed {len(new_assignments)} assignments."}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.post("/auto-assign/queue")
+async def add_to_queue(req: QueueTasksRequest, db: AsyncSession = Depends(get_db)):
+    try:
+        queued_items = []
+        for t in req.tasks:
+            start_dt = datetime.strptime(f"{t.start_date} {t.start_time}", "%Y-%m-%d %H:%M")
+            end_dt = start_dt + timedelta(hours=t.total_hours)
+            
+            q_task = AssignmentQueue(
+                manager_id=req.manager_id,
+                equipment_type=t.equipment_type,
+                job_title=t.job_title,
+                job_description=t.job_description or "",
+                start_time=start_dt,
+                end_time=end_dt,
+                total_hours=t.total_hours,
+                importance=t.importance,
+                priority=t.priority
+            )
+            db.add(q_task)
+            queued_items.append(q_task)
+            
+        await db.commit()
+        return {"status": "success", "message": f"Successfully queued {len(queued_items)} tasks."}
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.get("/auto-assign/queue/{manager_id}", response_model=List[QueuedTaskResponseItem])
+async def get_queue(manager_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(
+            select(AssignmentQueue)
+            .where(AssignmentQueue.manager_id == manager_id)
+            .order_by(AssignmentQueue.created_at.desc())
+        )
+        queue_items = res.scalars().all()
+        return [
+            QueuedTaskResponseItem(
+                queue_id=q.queue_id,
+                manager_id=q.manager_id,
+                equipment_type=q.equipment_type,
+                job_title=q.job_title,
+                job_description=q.job_description,
+                start_time=q.start_time.isoformat(),
+                end_time=q.end_time.isoformat(),
+                total_hours=q.total_hours,
+                importance=q.importance,
+                priority=q.priority,
+                created_at=q.created_at.isoformat() if q.created_at else datetime.utcnow().isoformat()
+            )
+            for q in queue_items
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+@router.delete("/auto-assign/queue/{queue_id}")
+async def cancel_queue_item(queue_id: str, db: AsyncSession = Depends(get_db)):
+    try:
+        res = await db.execute(select(AssignmentQueue).where(AssignmentQueue.queue_id == queue_id))
+        q_item = res.scalar_one_or_none()
+        if not q_item:
+            raise HTTPException(status_code=404, detail="Queue item not found.")
+            
+        await db.delete(q_item)
+        await db.commit()
+        return {"status": "success", "message": "Queue item successfully cancelled."}
+    except HTTPException:
+        raise
+    except Exception as e:
+        await db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+
+async def process_assignments_queue(manager_id: str, db: AsyncSession):
+    try:
+        # 1. Fetch queue items for this manager
+        queue_res = await db.execute(
+            select(AssignmentQueue)
+            .where(AssignmentQueue.manager_id == manager_id)
+            .order_by(AssignmentQueue.priority.desc(), AssignmentQueue.created_at.asc())
+        )
+        queued_tasks = queue_res.scalars().all()
+        if not queued_tasks:
+            return
+            
+        importance_rank = {"high": 3, "medium": 2, "low": 1}
+        queued_tasks_sorted = sorted(
+            queued_tasks,
+            key=lambda q: (1 if q.priority else 0, importance_rank.get(q.importance or "medium", 2), -q.created_at.timestamp()),
+            reverse=True
+        )
+        
+        # 2. Get manager's site IDs
+        site_ids = await get_manager_site_ids(manager_id)
+        if not site_ids:
+            return
+            
+        # 3. Fetch assets
+        asset_res = await db.execute(select(Asset).where(Asset.current_site_id.in_(site_ids)))
+        db_assets = asset_res.scalars().all()
+        
+        # 4. Fetch operators
+        mongo_operators = await Operator.find({"assigned_site_id": {"$in": site_ids}}).to_list()
+        op_map = {}
+        for o in mongo_operators:
+            user = await User.get(o.user.ref.id)
+            if user:
+                op_map[str(user.id)] = {
+                    "name": user.name,
+                    "experience_years": o.experience_years,
+                    "certified_equipment_types": getattr(o, "certified_equipment_types", [])
+                }
+                
+        # 5. Fetch existing active/scheduled assignments
+        existing_res = await db.execute(
+            select(Assignment).where(Assignment.assignment_status.in_(["active", "scheduled"]))
+        )
+        existing_assigns = existing_res.scalars().all()
+        
+        # 6. Initialize busy timelines
+        busy_assets = {}
+        busy_operators = {}
+        for ass in existing_assigns:
+            if ass.asset_id not in busy_assets:
+                busy_assets[ass.asset_id] = []
+            busy_assets[ass.asset_id].append((ass.start_time, ass.end_time))
+            
+            if ass.operator_id not in busy_operators:
+                busy_operators[ass.operator_id] = []
+            busy_operators[ass.operator_id].append((ass.start_time, ass.end_time))
+            
+        new_assignments = []
+        queued_to_delete = []
+        
+        for task in queued_tasks_sorted:
+            task_start = task.start_time
+            task_end = task.end_time
+            task_day = task_start.date()
+            
+            # 6a. Find candidate assets
+            candidates_assets = []
+            for a in db_assets:
+                if a.equipment_type.lower() != task.equipment_type.lower():
+                    continue
+                
+                # Check overlap
+                has_overlap = False
+                for b_start, b_end in busy_assets.get(a.asset_id, []):
+                    if task_start < b_end and task_end > b_start:
+                        has_overlap = True
+                        break
+                if has_overlap:
+                    continue
+                    
+                # Check 24h runtime limit
+                scheduled_durations = 0.0
+                for ass in existing_assigns:
+                    if ass.asset_id == a.asset_id and ass.start_time.date() == task_day:
+                        scheduled_durations += (ass.end_time - ass.start_time).total_seconds() / 3600.0
+                for prop in new_assignments:
+                    if prop.asset_id == a.asset_id and prop.start_time.date() == task_day:
+                        scheduled_durations += (prop.end_time - prop.start_time).total_seconds() / 3600.0
+                        
+                limit = getattr(a, "total_runtime", 16.0) or 16.0
+                if scheduled_durations + task.total_hours > limit:
+                    continue
+                    
+                candidates_assets.append(a)
+                
+            # 6b. Find candidate operators
+            candidates_operators = []
+            for op_id, op_info in op_map.items():
+                if not is_operator_certified_python(op_info["certified_equipment_types"], task.equipment_type):
+                    continue
+                    
+                has_overlap = False
+                for b_start, b_end in busy_operators.get(op_id, []):
+                    if task_start < b_end and task_end > b_start:
+                        has_overlap = True
+                        break
+                if has_overlap:
+                    continue
+                    
+                candidates_operators.append((op_id, op_info))
+                
+            # 6c. Match asset & operator
+            if not candidates_assets or not candidates_operators:
+                continue
+                
+            if task.importance == "high" or task.priority:
+                candidates_operators.sort(key=lambda o: o[1]["experience_years"], reverse=True)
+            else:
+                candidates_operators.sort(key=lambda o: o[1]["experience_years"])
+                
+            selected_asset = candidates_assets[0]
+            selected_op_id, selected_op_info = candidates_operators[0]
+            
+            new_asg = Assignment(
+                asset_id=selected_asset.asset_id,
+                operator_id=selected_op_id,
+                manager_id=manager_id,
+                job_title=task.job_title,
+                job_description=task.job_description or "",
+                start_time=task_start,
+                end_time=task_end,
+                importance=task.importance,
+                priority=task.priority,
+                assignment_status="active"
+            )
+            db.add(new_asg)
+            new_assignments.append(new_asg)
+            queued_to_delete.append(task)
+            
+            # Update busy timelines
+            if selected_asset.asset_id not in busy_assets:
+                busy_assets[selected_asset.asset_id] = []
+            busy_assets[selected_asset.asset_id].append((task_start, task_end))
+            
+            if selected_op_id not in busy_operators:
+                busy_operators[selected_op_id] = []
+            busy_operators[selected_op_id].append((task_start, task_end))
+            
+            # Update asset status
+            selected_asset.current_status = "working"
+            
+            # Update operator status
+            try:
+                from bson import ObjectId as BsonObjId
+                op_oid = BsonObjId(selected_op_id)
+                await Operator.find_one({"user.$id": op_oid}).update({"$set": {"status": "on_duty"}})
+            except Exception:
+                pass
+
+        # Delete resolved items from queue
+        for task in queued_to_delete:
+            await db.delete(task)
+            
+        if new_assignments:
+            await db.commit()
+    except Exception as e:
+        print(f"Error in queue processing daemon: {e}")

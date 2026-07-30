@@ -73,3 +73,26 @@ async def login(user_in: UserLogin):
         data={"sub": str(user.id), "role": user.role}
     )
     return {"access_token": access_token, "token_type": "bearer"}
+
+from pydantic import BaseModel as PydanticBaseModel
+
+class PushTokenRequest(PydanticBaseModel):
+    user_id: str
+    token: str
+
+@router.post("/push-token")
+async def register_push_token(req: PushTokenRequest):
+    user = await User.find_one(User.email == req.user_id)
+    if not user:
+        # Try by ID string
+        from bson import ObjectId
+        try:
+            user = await User.get(ObjectId(req.user_id))
+        except Exception:
+            raise HTTPException(status_code=404, detail="User not found")
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    user.expo_push_token = req.token
+    await user.save()
+    return {"status": "ok", "message": "Push token registered"}

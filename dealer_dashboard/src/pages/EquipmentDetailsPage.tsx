@@ -8,7 +8,7 @@ import {
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { fetchEquipment, fetchRecommendations } from '@/services/api';
+import { fetchEquipment, fetchRecommendations, fetchMaintenanceLogs } from '@/services/api';
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';
 import { Button } from '@/components/ui/Button';
@@ -30,26 +30,28 @@ const healthTrend = Array.from({ length: 12 }, (_, i) => ({
   health: Math.max(50, 96 - i * 1.5 - Math.random() * 4),
 }));
 
-const maintenanceTimeline = [
-  { date: 'Jul 28', event: 'Hydraulic inspection', status: 'done' },
-  { date: 'Jul 15', event: 'Oil change', status: 'done' },
-  { date: 'Jul 02', event: 'Track adjustment', status: 'done' },
-  { date: 'Aug 12', event: 'Next service interval', status: 'upcoming' },
-];
+
 
 export function EquipmentDetailsPage() {
   const { id } = useParams();
   const navigate = useNavigate();
   const [eq, setEq] = useState<any>(null);
   const [rec, setRec] = useState<any>(null);
+  const [maintenanceTimeline, setMaintenanceTimeline] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     const load = async () => {
       try {
-        const [eqData, recData] = await Promise.all([fetchEquipment(), fetchRecommendations()]);
+        if (!id) return;
+        const [eqData, recData, maintData] = await Promise.all([
+          fetchEquipment(), 
+          fetchRecommendations(),
+          fetchMaintenanceLogs(id)
+        ]);
         setEq(eqData.find((e: any) => e.id === id) || null);
         setRec(recData.find((r: any) => r.equipmentId === id) || null);
+        setMaintenanceTimeline(maintData);
       } catch (err) {
         console.error(err);
       } finally {

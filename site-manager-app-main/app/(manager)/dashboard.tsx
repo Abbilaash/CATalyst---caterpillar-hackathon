@@ -16,6 +16,8 @@ import { Avatar } from '@/components/Avatar';
 import { CURRENT_MANAGER, DASHBOARD_STATS, ACTIVITIES } from '@/data/mock';
 import { useSession } from '@/context/SessionContext';
 import { API_BASE_URL } from '@/constant/api';
+import { Platform } from 'react-native';
+import { AlertBanner } from '@/components/AlertBanner';
 
 type IconType = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -64,9 +66,12 @@ export default function ManagerDashboard() {
           if (data.activities) setActivities(data.activities);
           if (data.manager_name) {
             setManagerInfo({
+              id: resolvedManagerId,
               name: data.manager_name,
               siteName: data.site_name || 'Highland Quarry',
-              avatar: CURRENT_MANAGER.avatar
+              managedAssets: data.stats?.totalAssets || 0,
+              operators: data.stats?.operatorsOnDuty || 0,
+              reportsGenerated: 312
             });
           }
         }
@@ -87,9 +92,10 @@ export default function ManagerDashboard() {
             title={`Welcome, ${managerInfo.name.split(' ')[0]}`}
             subtitle={`${managerInfo.siteName} · Site Manager`}
             onSearch={() => router.push('/(manager)/assets')}
-            onBell={() => {}}
+            onBell={() => { }}
             badge={stats.safetyAlerts}
           />
+          <AlertBanner role="manager" />
 
           {/* Hero KPIs - first row */}
           <View style={styles.section}>
@@ -136,7 +142,7 @@ export default function ManagerDashboard() {
             <SectionLabel title="Recent Activity" />
             <Card style={styles.timelineCard}>
               {activities.map((a, i) => {
-                const cfg = ACTIVITY_ICONS[a.type];
+                const cfg = ACTIVITY_ICONS[a.type] || ACTIVITY_ICONS.assigned;
                 const isLast = i === activities.length - 1;
                 return (
                   <View key={a.id} style={[styles.timelineItem, !isLast && styles.timelineItemBorder]}>

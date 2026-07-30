@@ -41,10 +41,12 @@ class Asset(Base):
     next_service_due = Column(Date)
     image_url = Column(String)
     last_operator = Column(String, nullable=True)
+    total_runtime = Column(Float, default=16.0) # Maximum runtime allowed per 24 hours
 
     current_site = relationship("Site", back_populates="assets")
     rentals = relationship("Rental", back_populates="asset")
     assignments = relationship("Assignment", back_populates="asset")
+    maintenance_logs = relationship("MaintenanceLog", back_populates="asset")
 
 class RentalRequest(Base):
     __tablename__ = "rental_requests"
@@ -65,7 +67,6 @@ class Rental(Base):
     
     rental_id = Column(String, primary_key=True, default=generate_uuid)
     asset_id = Column(String, ForeignKey("assets.asset_id"))
-    site_id = Column(String, ForeignKey("sites.site_id"))
     assigned_operator = Column(String) # Mongo operator_id
     check_in_time = Column(DateTime)
     check_out_time = Column(DateTime, nullable=True)
@@ -75,7 +76,6 @@ class Rental(Base):
     remarks = Column(Text, nullable=True)
 
     asset = relationship("Asset", back_populates="rentals")
-    site = relationship("Site")
 
 class Assignment(Base):
     __tablename__ = "assignments"
@@ -89,6 +89,8 @@ class Assignment(Base):
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     assignment_status = Column(String, default="scheduled") # scheduled, active, completed, cancelled
+    importance = Column(String, default="medium") # high, medium, low
+    priority = Column(Boolean, default=False)
 
     asset = relationship("Asset", back_populates="assignments")
 
@@ -102,3 +104,30 @@ class QRScanLog(Base):
     scan_type = Column(String) # check-in, check-out
     location = Column(String) # GPS coordinates as string or json
     result = Column(String) # success, failed_unauthorized, failed_time_mismatch
+
+class MaintenanceLog(Base):
+    __tablename__ = "maintenance_logs"
+    
+    log_id = Column(String, primary_key=True, default=generate_uuid)
+    asset_id = Column(String, ForeignKey("assets.asset_id"))
+    event = Column(String, nullable=False)
+    date = Column(DateTime, nullable=False)
+    status = Column(String, default="done") # done, upcoming
+    remarks = Column(Text, nullable=True)
+
+    asset = relationship("Asset", back_populates="maintenance_logs")
+
+class AssignmentQueue(Base):
+    __tablename__ = "assignments_queue"
+    
+    queue_id = Column(String, primary_key=True, default=generate_uuid)
+    manager_id = Column(String, nullable=False)
+    equipment_type = Column(String, nullable=False)
+    job_title = Column(String, nullable=False)
+    job_description = Column(Text, nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    total_hours = Column(Float, nullable=False)
+    importance = Column(String, default="medium")
+    priority = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())

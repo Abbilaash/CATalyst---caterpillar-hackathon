@@ -3,12 +3,13 @@ import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Search, SlidersHorizontal, ArrowUpDown, Eye, Truck, Loader2 } from 'lucide-react';
 import { fetchEquipment } from '@/services/api';
+import { Equipment } from '@/types';
 
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';
 import { PageContainer, PageHeader, EmptyState } from '@/components/ui/Page';
 
-const categories = ['All', 'Excavator', 'Dozer', 'Loader', 'Grader', 'Truck', 'Compactor'];
+const categories = ['All', 'Excavator', 'Dozer', 'Loader', 'Grader', 'Truck', 'Compactor', 'Scraper'];
 const statusLabel: Record<string, string> = {
   working: 'Working', idle: 'Idle', critical: 'Critical', maintenance: 'Maintenance', transit: 'Transit',
 };
@@ -42,18 +43,19 @@ export function FleetPage() {
     let r = equipment.filter(
       (e) =>
         (category === 'All' || e.category === category) &&
-        (e.name.toLowerCase().includes(query.toLowerCase()) ||
-          e.site.toLowerCase().includes(query.toLowerCase()) ||
-          e.operator.toLowerCase().includes(query.toLowerCase()))
+        ((e.name?.toLowerCase() || '').includes(query.toLowerCase()) ||
+          (e.site?.toLowerCase() || '').includes(query.toLowerCase()) ||
+          (e.operator?.toLowerCase() || '').includes(query.toLowerCase()))
     );
     r = [...r].sort((a, b) => {
-      const v = sortAsc
-        ? (a[sortKey] > b[sortKey] ? 1 : -1)
-        : (a[sortKey] < b[sortKey] ? 1 : -1);
-      return v;
+      const valA = a[sortKey];
+      const valB = b[sortKey];
+      if (valA === valB) return 0;
+      if (sortAsc) return valA > valB ? 1 : -1;
+      return valA < valB ? 1 : -1;
     });
     return r;
-  }, [query, category, sortKey, sortAsc]);
+  }, [equipment, query, category, sortKey, sortAsc]);
 
   const toggleSort = (k: SortKey) => {
     if (sortKey === k) setSortAsc(!sortAsc);

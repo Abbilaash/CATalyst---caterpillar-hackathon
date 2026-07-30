@@ -7,6 +7,7 @@ import {
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { useSession } from '@/context/SessionContext';
+import { usePushToken } from '@/hooks/usePushToken';
 import type { Role } from '@/types';
 import { API_BASE_URL } from '@/constant/api';
 
@@ -76,6 +77,7 @@ export function LoginScreen({ role }: { role: Role }) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const Icon = cfg.icon;
+  const expoPushToken = usePushToken();
 
   const handleLogin = async () => {
     if (!employeeId.trim() || !password) {
@@ -104,12 +106,12 @@ export function LoginScreen({ role }: { role: Role }) {
         return;
       }
 
-      // 1. Save data to context
+      // Save credentials in SessionContext
       setToken(data.access_token);
       setEmail(employeeId.trim());
       setRole(role);
 
-      // 2. Decode JWT payload to retrieve manager user ID (sub)
+      // Decode JWT payload to retrieve user id
       let resolvedUserId = 'mgr-01';
       try {
         const payloadBase64 = data.access_token.split('.')[1];
@@ -121,6 +123,19 @@ export function LoginScreen({ role }: { role: Role }) {
         console.warn('Could not decode JWT sub payload:', jwtErr);
       }
       setManagerId(resolvedUserId);
+
+      // Register push token
+      if (expoPushToken) {
+        try {
+          await fetch(`${API_BASE_URL}/api/v1/auth/push-token`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ user_id: resolvedUserId, token: expoPushToken })
+          });
+        } catch (pushErr) {
+          console.log('Failed to register push token:', pushErr);
+        }
+      }
 
       setLoading(false);
       router.replace(role === 'operator' ? '/(operator)/home' : '/(manager)/dashboard');

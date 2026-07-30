@@ -11,6 +11,7 @@ import { ForecastPage } from '@/pages/ForecastPage';
 import { ReportsPage } from '@/pages/ReportsPage';
 import { CopilotPage } from '@/pages/CopilotPage';
 import { SettingsPage } from '@/pages/SettingsPage';
+import { AlertsPage } from '@/pages/AlertsPage';
 
 function App() {
   return (
@@ -26,6 +27,7 @@ function App() {
           <Route path="/decisions" element={<DecisionCenterPage />} />
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/reports" element={<ReportsPage />} />
+          <Route path="/alerts" element={<AlertsPage />} />
           <Route path="/copilot" element={<CopilotPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>

@@ -10,6 +10,7 @@ class User(Document):
     password_hash: str
     role: str # 'operator', 'site_manager', 'dealer', 'admin'
     status: str = "active"
+    expo_push_token: Optional[str] = None  # For Expo push notifications
     created_at: datetime = Field(default_factory=datetime.utcnow)
     last_login: Optional[datetime] = None
 
@@ -23,6 +24,8 @@ class Operator(Document):
     assigned_site_id: Optional[str] = None # FK to postgres site_id, keep as string
     status: str = "available"
     certified_equipment_types: List[str] = []
+    shift_status: str = "off_duty"
+    safety_score: int = 100
     emergency_contact: Optional[str] = None
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
@@ -48,11 +51,18 @@ class Dealer(Document):
         name = "dealers"
 
 class Notification(Document):
-    user_id: str # Link to mongo user id string
+    user_id: str  # Link to mongo user id string
     title: str
     message: str
-    notification_type: str
+    notification_type: str  # idle_asset, rental_expiring, rental_overdue, etc.
+    severity: str = "medium"  # critical, high, medium, low
+    target_role: str = "dealer"  # dealer, manager, operator
+    asset_id: Optional[str] = None  # Postgres asset_id for deep-link
+    site_id: Optional[str] = None  # Postgres site_id
+    action_url: Optional[str] = None  # e.g. /equipment/<id>
     read_status: bool = False
+    is_dismissed: bool = False
+    push_sent: bool = False  # Was Expo push sent?
     created_at: datetime = Field(default_factory=datetime.utcnow)
 
     class Settings:

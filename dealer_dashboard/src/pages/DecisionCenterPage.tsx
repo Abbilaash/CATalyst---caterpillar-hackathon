@@ -6,7 +6,7 @@ import { fetchRecommendations } from '@/services/api';
 import { Badge, priorityTone } from '@/components/ui/Badge';
 import { AnimatedCounter } from '@/components/ui/AnimatedCounter';
 import { PageContainer, PageHeader } from '@/components/ui/Page';
-import { RecommendationCard } from '@/components/mission/RecommendationCard';
+import { RecommendationCard, Recommendation } from '@/components/mission/RecommendationCard';
 
 const categories = ['All', 'Relocation', 'Maintenance', 'Rental', 'Utilization'];
 const priorities = ['All', 'high', 'medium', 'low'];
