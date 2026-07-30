@@ -10,8 +10,11 @@ import {
   FileText,
   Bot,
   Settings,
+  Bell,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
+import { useState, useEffect } from 'react';
+import { fetchAlerts } from '@/services/api';
 
 const nav = [
   { to: '/', label: 'Mission Control', icon: LayoutDashboard, end: true },
@@ -22,9 +25,24 @@ const nav = [
   { to: '/decisions', label: 'Decision Center', icon: Brain },
   { to: '/forecast', label: 'Forecasting', icon: TrendingUp },
   { to: '/reports', label: 'Reports', icon: FileText },
+  { to: '/alerts', label: 'Alert Center', icon: Bell },
 ];
 
 export function Sidebar({ open }: { open: boolean }) {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    const load = async () => {
+      try {
+        const data = await fetchAlerts('dealer');
+        setUnreadCount(data.summary?.unread || 0);
+      } catch (e) {}
+    };
+    load();
+    const interval = setInterval(load, 30000);
+    return () => clearInterval(interval);
+  }, []);
+
   return (
     <aside
       className={`fixed left-0 top-0 z-40 h-screen w-64 transform border-r border-white/[0.04] bg-ink-700 transition-transform duration-300 lg:translate-x-0 ${
@@ -66,6 +84,11 @@ export function Sidebar({ open }: { open: boolean }) {
                 <span className="relative z-10">{item.label}</span>
                 {isActive && (
                   <span className="relative z-10 ml-auto h-1.5 w-1.5 rounded-full bg-cat-yellow" />
+                )}
+                {item.to === '/alerts' && unreadCount > 0 && !isActive && (
+                  <span className="relative z-10 ml-auto flex h-5 min-w-[20px] items-center justify-center rounded-full bg-crit px-1 text-[10px] font-bold text-white">
+                    {unreadCount > 99 ? '99+' : unreadCount}
+                  </span>
                 )}
               </>
             )}

@@ -9,7 +9,7 @@ from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from beanie import init_beanie
 from app.db.mongodb import get_database
 from app.models.mongo.users import User, Operator, SiteManager, Dealer, Notification, LoginHistory
-from app.api.v1 import auth, site_manager, dealer, operator, equipment, analytics, ai, sites, operators, live
+from app.api.v1 import auth, site_manager, dealer, operator, equipment, analytics, ai, sites, operators, live, alerts
 from app.db.postgres import engine
 from sqlalchemy import text
 
@@ -63,3 +63,4 @@ app.include_router(ai.router, prefix="/api/v1/ai", tags=["Dashboard - AI"])
 app.include_router(sites.router, prefix="/api/v1/sites", tags=["Dashboard - Sites"])
 app.include_router(operators.router, prefix="/api/v1/dashboard-operators", tags=["Dashboard - Operators"])
 app.include_router(live.router, prefix="/api/v1/live", tags=["Dashboard - Live"])
+app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["Alerts"])

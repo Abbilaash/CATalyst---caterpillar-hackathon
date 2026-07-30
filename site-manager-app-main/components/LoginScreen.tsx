@@ -7,6 +7,7 @@ import {
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { useSession } from '@/context/SessionContext';
+import { usePushToken } from '@/hooks/usePushToken';
 import type { Role } from '@/types';
 
 type RoleConfig = {
@@ -54,8 +55,30 @@ export function LoginScreen({ role }: { role: Role }) {
   const [password, setPassword] = useState('');
   const Icon = cfg.icon;
 
-  const handleLogin = () => {
+  const expoPushToken = usePushToken();
+
+  const handleLogin = async () => {
     setRole(role);
+    
+    // Register push token with backend
+    if (expoPushToken) {
+      try {
+        // Use a generic email mapping for demo based on role since there's no real auth yet
+        const userId = role === 'operator' ? 'john.doe@caterpillar.com' : 'mike.smith@caterpillar.com';
+        // We'll hardcode localhost for the simulator. On device, use your machine's IP (e.g., http://192.168.1.100:8000)
+        // For Android emulator, 10.0.2.2 points to host machine
+        const apiBase = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+        
+        await fetch(`${apiBase}/api/v1/auth/push-token`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ user_id: userId, token: expoPushToken })
+        });
+      } catch (err) {
+        console.log('Failed to send push token to backend:', err);
+      }
+    }
+
     router.replace(role === 'operator' ? '/(operator)/home' : '/(manager)/dashboard');
   };
 

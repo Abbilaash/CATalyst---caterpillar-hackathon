@@ -13,7 +13,10 @@ import { AppHeader } from '@/components/AppHeader';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Avatar } from '@/components/Avatar';
-import { CURRENT_MANAGER, DASHBOARD_STATS, ACTIVITIES } from '@/data/mock';
+import { useState, useEffect } from 'react';
+import { Platform } from 'react-native';
+import { CURRENT_MANAGER, DASHBOARD_STATS } from '@/data/mock';
+import { AlertBanner } from '@/components/AlertBanner';
 
 type IconType = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
 
@@ -45,6 +48,34 @@ const ACTIVITY_ICONS: Record<string, { Icon: IconType; accent: string }> = {
 
 export default function ManagerDashboard() {
   const router = useRouter();
+  const [activities, setActivities] = useState<any[]>([]);
+
+  useEffect(() => {
+    const fetchActivities = async () => {
+      try {
+        const apiBase = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
+        const response = await fetch(`${apiBase}/api/v1/alerts?role=manager`);
+        const data = await response.json();
+        
+        const mapped = (data.alerts || []).map((a: any) => ({
+          id: a.id,
+          type: a.severity === 'critical' || a.severity === 'high' ? 'issue_reported' 
+              : a.type === 'maintenance_due' ? 'maintenance_scheduled' 
+              : 'assigned',
+          title: a.title,
+          detail: a.message,
+          timestamp: new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
+        }));
+        setActivities(mapped);
+      } catch (e) {
+        console.log('Failed to fetch manager activities', e);
+      }
+    };
+    
+    fetchActivities();
+    const interval = setInterval(fetchActivities, 30000);
+    return () => clearInterval(interval);
+  }, []);
 
   return (
     <Screen>
@@ -57,6 +88,7 @@ export default function ManagerDashboard() {
             onBell={() => {}}
             badge={DASHBOARD_STATS.safetyAlerts}
           />
+          <AlertBanner role="manager" />
 
           {/* Hero KPIs - first row */}
           <View style={styles.section}>
@@ -102,22 +134,28 @@ export default function ManagerDashboard() {
           <View style={[styles.section, { marginBottom: SPACING.xxxl }]}>
             <SectionLabel title="Recent Activity" />
             <Card style={styles.timelineCard}>
-              {ACTIVITIES.map((a, i) => {
-                const cfg = ACTIVITY_ICONS[a.type];
-                const isLast = i === ACTIVITIES.length - 1;
-                return (
-                  <View key={a.id} style={[styles.timelineItem, !isLast && styles.timelineItemBorder]}>
-                    <View style={[styles.timelineIcon, { backgroundColor: cfg.accent + '22', borderColor: cfg.accent + '44' }]}>
-                      <cfg.Icon size={16} color={cfg.accent} strokeWidth={2.2} />
+              {activities.length === 0 ? (
+                <View style={{ padding: SPACING.lg, alignItems: 'center' }}>
+                  <Text style={{ fontFamily: FONT.medium, color: PALETTE.textSecondary }}>No recent activity.</Text>
+                </View>
+              ) : (
+                activities.map((a, i) => {
+                  const cfg = ACTIVITY_ICONS[a.type] || ACTIVITY_ICONS['assigned'];
+                  const isLast = i === activities.length - 1;
+                  return (
+                    <View key={a.id} style={[styles.timelineItem, !isLast && styles.timelineItemBorder]}>
+                      <View style={[styles.timelineIcon, { backgroundColor: cfg.accent + '22', borderColor: cfg.accent + '44' }]}>
+                        <cfg.Icon size={16} color={cfg.accent} strokeWidth={2.2} />
+                      </View>
+                      <View style={{ flex: 1 }}>
+                        <Text style={styles.timelineTitle}>{a.title}</Text>
+                        <Text style={styles.timelineDetail} numberOfLines={1}>{a.detail}</Text>
+                      </View>
+                      <Text style={styles.timelineTime}>{a.timestamp}</Text>
                     </View>
-                    <View style={{ flex: 1 }}>
-                      <Text style={styles.timelineTitle}>{a.title}</Text>
-                      <Text style={styles.timelineDetail} numberOfLines={1}>{a.detail}</Text>
-                    </View>
-                    <Text style={styles.timelineTime}>{a.timestamp}</Text>
-                  </View>
-                );
-              })}
+                  );
+                })
+              )}
             </Card>
           </View>
         </ScrollView>
