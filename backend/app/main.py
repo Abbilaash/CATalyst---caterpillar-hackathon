@@ -18,6 +18,10 @@ async def lifespan(app: FastAPI):
     # Startup PostgreSQL
     async with engine.begin() as conn:
         await conn.execute(text("SELECT 1"))
+        
+        # Automatically create all Postgres tables if they don't exist
+        from app.models.postgres.core import Base
+        await conn.run_sync(Base.metadata.create_all)
     print("*" * 50)
     print("SUCCESS: Connected to Local PostgreSQL Database!")
     print("*" * 50)
