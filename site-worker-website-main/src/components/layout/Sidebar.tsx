@@ -4,11 +4,9 @@ import { motion } from 'framer-motion';
 import {
   LayoutDashboard,
   Construction,
-  Users,
+  CalendarClock,
   ClipboardList,
-  Wrench,
   BarChart3,
-  Settings,
   X,
   Zap,
 } from 'lucide-react';
@@ -16,11 +14,9 @@ import {
 const navItems = [
   { to: '/', label: 'Dashboard', icon: LayoutDashboard, end: true },
   { to: '/assets', label: 'Assets', icon: Construction },
-  { to: '/operators', label: 'Operators', icon: Users },
+  { to: '/scheduling', label: 'Scheduling', icon: CalendarClock },
   { to: '/operations', label: 'Operations', icon: ClipboardList },
-  { to: '/maintenance', label: 'Maintenance', icon: Wrench },
   { to: '/reports', label: 'Reports', icon: BarChart3 },
-  { to: '/settings', label: 'Settings', icon: Settings },
 ];
 
 interface SidebarProps {

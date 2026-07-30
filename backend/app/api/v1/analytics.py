@@ -3,12 +3,60 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, and_, text
 from app.db.postgres import get_db
-from app.models.postgres.core import Asset, Rental
+from app.models.postgres.core import Asset, Rental, Assignment, MaintenanceLog, InterruptedAssignment
 from app.models.postgres.telemetry import Telemetry, EngineEvent
 from pydantic import BaseModel
 from datetime import datetime, timedelta
 
 router = APIRouter()
+
+
+def build_utilization_series(assets, assignments, days=7):
+    capacity_hours = sum(float(asset.get("total_runtime") or 0.0) for asset in assets) if assets else 0.0
+    working_hours = 0.0
+    for assignment in assignments:
+        start_time = assignment.get("start_time")
+        end_time = assignment.get("end_time")
+        if start_time and end_time:
+            duration = max((end_time - start_time).total_seconds() / 3600.0, 0.0)
+            if duration > 0:
+                working_hours += max(duration, 8.0)
+
+    utilization_pct = round((working_hours / capacity_hours * 100) if capacity_hours else 0.0, 1)
+    return [{
+        "day": (datetime.utcnow() - timedelta(days=days - 1)).strftime("%b %d") if days > 1 else "Today",
+        "working_hours": round(working_hours, 1),
+        "capacity_hours": round(capacity_hours, 1),
+        "utilization_pct": utilization_pct,
+    }]
+
+
+def build_downtime_series(maintenance_logs, interruptions, days=7):
+    series = []
+    relevant_dates = [
+        log.get("date") for log in maintenance_logs if log.get("date")
+    ] + [
+        log.get("interrupted_at") for log in interruptions if log.get("interrupted_at")
+    ]
+    relevant_dates = [date for date in relevant_dates if isinstance(date, datetime)]
+    anchor_day = min(relevant_dates).date() if relevant_dates else datetime.utcnow().date()
+
+    for offset in range(days):
+        day = anchor_day + timedelta(days=offset)
+        day_start = datetime.combine(day, datetime.min.time())
+        day_end = day_start + timedelta(days=1)
+
+        scheduled = sum(
+            1 for log in maintenance_logs
+            if log.get("date") and isinstance(log.get("date"), datetime) and day_start <= log.get("date") < day_end and log.get("status") == "done"
+        )
+        unplanned = sum(
+            1 for log in interruptions
+            if log.get("interrupted_at") and isinstance(log.get("interrupted_at"), datetime) and day_start <= log.get("interrupted_at") < day_end and log.get("status") != "cancelled"
+        )
+        series.append({"week": day.strftime("%b %d"), "scheduled": scheduled, "unplanned": unplanned})
+    return series
+
 
 class KPIResponse(BaseModel):
     fleetUtilization: dict
@@ -62,7 +110,18 @@ async def get_kpis(db: AsyncSession = Depends(get_db)):
 
 @router.get("/trends")
 async def get_trends(db: AsyncSession = Depends(get_db)):
-    # 1. Idle Analysis from Telemetry
+    asset_res = await db.execute(select(Asset.asset_id, Asset.equipment_type, Asset.total_runtime).where(Asset.total_runtime.is_not(None)))
+    assets = [{"asset_id": row.asset_id, "equipment_type": row.equipment_type, "total_runtime": row.total_runtime or 0.0} for row in asset_res.all()]
+
+    assignment_res = await db.execute(select(Assignment.asset_id, Assignment.start_time, Assignment.end_time).where(Assignment.assignment_status.in_(["active", "scheduled"])))
+    assignments = [{"asset_id": row.asset_id, "start_time": row.start_time, "end_time": row.end_time} for row in assignment_res.all()]
+
+    maintenance_res = await db.execute(select(MaintenanceLog.date, MaintenanceLog.status).where(MaintenanceLog.date.is_not(None)))
+    maintenance_logs = [{"date": row.date, "status": row.status} for row in maintenance_res.all()]
+
+    interruptions_res = await db.execute(select(InterruptedAssignment.interrupted_at, InterruptedAssignment.status).where(InterruptedAssignment.interrupted_at.is_not(None)))
+    interruptions = [{"interrupted_at": row.interrupted_at, "status": row.status} for row in interruptions_res.all()]
+
     stmt = (
         select(
             Asset.equipment_type,
@@ -79,8 +138,9 @@ async def get_trends(db: AsyncSession = Depends(get_db)):
         for row in idle_data
     ]
 
-    # For hackathon visualization purposes, since we only seeded 30 days of data, 
-    # we'll map the database aggregates into the shapes the frontend expects.
+    utilization_series = build_utilization_series(assets, assignments, days=7)
+    downtime_series = build_downtime_series(maintenance_logs, interruptions, days=7)
+
     return {
         "demandForecast": [
             {"day": 'Mon', "Excavators": 12, "Dozers": 8, "Loaders": 10, "Graders": 4},
@@ -101,12 +161,8 @@ async def get_trends(db: AsyncSession = Depends(get_db)):
             {"month": 'Jul', "revenue": 1960, "target": 1700},
         ],
         "utilizationTrend": [
-            {"week": 'W1', "utilization": 72, "idle": 28},
-            {"week": 'W2', "utilization": 78, "idle": 22},
-            {"week": 'W3', "utilization": 81, "idle": 19},
-            {"week": 'W4', "utilization": 84, "idle": 16},
-            {"week": 'W5', "utilization": 87, "idle": 13},
-            {"week": 'W6', "utilization": 85, "idle": 15},
+            {"week": item["day"], "utilization": item["utilization_pct"], "idle": max(0, 100 - item["utilization_pct"])}
+            for item in utilization_series
         ],
         "rentalTrends": [
             {"month": 'Jan', "new": 18, "expiring": 6, "renewed": 12},
@@ -116,14 +172,7 @@ async def get_trends(db: AsyncSession = Depends(get_db)):
             {"month": 'May', "new": 30, "expiring": 11, "renewed": 22},
             {"month": 'Jun', "new": 34, "expiring": 9, "renewed": 26},
         ],
-        "downtimeData": [
-            {"week": 'W1', "scheduled": 12, "unplanned": 8},
-            {"week": 'W2', "scheduled": 14, "unplanned": 5},
-            {"week": 'W3', "scheduled": 10, "unplanned": 11},
-            {"week": 'W4', "scheduled": 16, "unplanned": 3},
-            {"week": 'W5', "scheduled": 13, "unplanned": 6},
-            {"week": 'W6', "scheduled": 18, "unplanned": 2},
-        ],
+        "downtimeData": downtime_series,
         "idleAnalysis": idle_analysis if idle_analysis else [
             {"category": 'Excavators', "hours": 0, "cost": 0},
         ]

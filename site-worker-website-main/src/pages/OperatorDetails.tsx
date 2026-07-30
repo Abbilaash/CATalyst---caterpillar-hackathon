@@ -12,7 +12,6 @@ import {
   Shield,
   Construction,
 } from 'lucide-react';
-import { operators, machines, tasks, getMachine } from '@/data/mock-data';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -20,9 +19,102 @@ import { EmptyState } from '@/components/common/EmptyState';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { cn } from '@/lib/utils';
 
+import { useState, useEffect } from 'react';
+import { fetchSchedulingData, fetchAssets, fetchOperations } from '@/lib/api';
+
 export function OperatorDetails() {
   const { id } = useParams();
-  const operator = operators.find((o) => o.id === id);
+  const [operator, setOperator] = useState<any>(null);
+  const [assignedMachine, setAssignedMachine] = useState<any>(null);
+  const [activeTasks, setActiveTasks] = useState<any[]>([]);
+  const [completedTasks, setCompletedTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      if (!id) return;
+      try {
+        const schedData = await fetchSchedulingData('mgr-01');
+        const assetsData = await fetchAssets('mgr-01');
+        const opsData = await fetchOperations('mgr-01');
+
+        const op = (schedData.all_operators || []).find((o: any) => o.operator_id === id);
+        if (!op) {
+          setLoading(false);
+          return;
+        }
+
+        const activeTask = opsData.find((opTask: any) => opTask.operatorId === id && opTask.status === 'in_progress');
+
+        const mappedOperator = {
+          id: op.operator_id,
+          employeeId: op.license_number || `EMP-${op.operator_id.slice(0, 4).upper()}`,
+          name: op.name,
+          role: op.certified_equipment_types?.length ? `${op.certified_equipment_types.join(', ')} Operator` : 'General Operator',
+          avatar: `https://i.pravatar.cc/150?u=${op.operator_id}`,
+          assignedMachineId: activeTask ? activeTask.machineId : null,
+          currentTask: activeTask ? activeTask.task : null,
+          shift: op.status === 'on_duty' ? 'On Shift' : 'Off Shift',
+          experienceYears: op.experience_years,
+          safetyScore: 95,
+          performance: 90,
+          completedTasks: opsData.filter((t: any) => t.operatorId === id && t.status === 'completed').length,
+          openTasks: opsData.filter((t: any) => t.operatorId === id && t.status !== 'completed').length,
+          availability: activeTask ? 'On Task' : op.status === 'on_duty' ? 'Available' : 'Unavailable',
+          phone: '(555) 210-' + op.operator_id.slice(-4),
+          certifications: op.certified_equipment_types || ['OSHA 30'],
+          hireDate: '2020-01-15',
+          hoursThisWeek: 35,
+          hoursTotal: 4800
+        };
+
+        setOperator(mappedOperator);
+
+        if (activeTask) {
+          const matchAsset = assetsData.find((a: any) => a.machineId === activeTask.machineId);
+          if (matchAsset) {
+            setAssignedMachine({
+              id: matchAsset.id,
+              name: matchAsset.name,
+              machineId: matchAsset.machineId,
+              image: `https://picsum.photos/seed/cat-${matchAsset.id}/600/400`,
+              rentalStatus: matchAsset.rentalStatus === 'active' ? 'Active' : 'Available',
+              engineHours: matchAsset.engineHours
+            });
+          }
+        }
+
+        const opTasks = opsData.filter((t: any) => t.operatorId === id).map((t: any) => {
+          const m = assetsData.find((asset: any) => asset.machineId === t.machineId);
+          return {
+            id: t.id,
+            title: t.task,
+            machineId: t.machineId,
+            machineName: m ? m.name : 'Unknown Equipment',
+            progress: t.progress,
+            status: t.status === 'completed' ? 'Completed' : t.status === 'in_progress' ? 'In Progress' : 'Pending',
+            expectedCompletion: t.expectedCompletion
+          };
+        });
+
+        setActiveTasks(opTasks.filter((t: any) => t.status !== 'Completed'));
+        setCompletedTasks(opTasks.filter((t: any) => t.status === 'Completed'));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   if (!operator) {
     return (
@@ -33,11 +125,6 @@ export function OperatorDetails() {
       />
     );
   }
-
-  const assignedMachine = getMachine(operator.assignedMachineId);
-  const operatorTasks = tasks.filter((t) => t.operatorId === operator.id);
-  const completedTasks = operatorTasks.filter((t) => t.status === 'Completed');
-  const activeTasks = operatorTasks.filter((t) => t.status !== 'Completed');
 
   const safetyHistory = [
     { id: 'sh1', date: '2026-07-18', event: 'Safety briefing completed', severity: 'info' as const },
@@ -81,7 +168,7 @@ export function OperatorDetails() {
               <h2 className="mt-4 text-lg font-bold text-foreground">{operator.name}</h2>
               <p className="text-sm text-muted-foreground">{operator.role}</p>
               <div className="mt-3 flex flex-wrap justify-center gap-1.5">
-                {operator.certifications.map((c) => (
+                {operator.certifications.map((c: string) => (
                   <span key={c} className="inline-flex items-center gap-1 rounded-full border border-border bg-accent/50 px-2 py-0.5 text-[11px] text-muted-foreground">
                     <Award className="h-3 w-3 text-primary" /> {c}
                   </span>
@@ -201,13 +288,12 @@ export function OperatorDetails() {
                 <p className="py-2 text-sm text-muted-foreground">No active tasks</p>
               ) : (
                 activeTasks.map((t) => {
-                  const machine = getMachine(t.machineId);
                   return (
                     <div key={t.id} className="rounded-lg border border-border/60 bg-accent/30 p-3">
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <p className="truncate text-sm font-medium text-foreground">{t.title}</p>
-                          <p className="truncate text-xs text-muted-foreground">{machine?.name}</p>
+                          <p className="truncate text-xs text-muted-foreground">{t.machineName}</p>
                         </div>
                         <StatusChip status={t.status} showIcon={false} />
                       </div>
@@ -234,13 +320,12 @@ export function OperatorDetails() {
                 <p className="py-2 text-sm text-muted-foreground">No completed tasks</p>
               ) : (
                 completedTasks.map((t) => {
-                  const machine = getMachine(t.machineId);
                   return (
                     <div key={t.id} className="flex items-center gap-3 rounded-lg border border-border/60 bg-accent/20 p-3">
                       <CheckCircle2 className="h-4 w-4 shrink-0 text-success" />
                       <div className="min-w-0 flex-1">
                         <p className="truncate text-sm font-medium text-foreground">{t.title}</p>
-                        <p className="truncate text-xs text-muted-foreground">{machine?.name}</p>
+                        <p className="truncate text-xs text-muted-foreground">{t.machineName}</p>
                       </div>
                       <span className="shrink-0 text-xs text-muted-foreground">
                         {new Date(t.expectedCompletion).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}

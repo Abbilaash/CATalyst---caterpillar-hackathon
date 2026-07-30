@@ -13,7 +13,6 @@ import {
   MapPin,
   CheckCircle2,
 } from 'lucide-react';
-import { machines, getOperator, getSite } from '@/data/mock-data';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -23,9 +22,110 @@ import { Button } from '@/components/ui/button';
 
 import { cn } from '@/lib/utils';
 
+import { useState, useEffect } from 'react';
+import { fetchAssets, fetchSchedulingData, fetchMaintenanceLogs } from '@/lib/api';
+
 export function AssetDetails() {
   const { id } = useParams();
-  const machine = machines.find((m) => m.id === id);
+  const [machine, setMachine] = useState<any>(null);
+  const [operator, setOperator] = useState<any>(null);
+  const [site, setSite] = useState<any>(null);
+  const [maintenanceHistory, setMaintenanceHistory] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    async function load() {
+      if (!id) return;
+      try {
+        const assetsData = await fetchAssets('mgr-01');
+        const schedData = await fetchSchedulingData('mgr-01');
+        
+        const matchingAsset = assetsData.find((a: any) => a.id === id);
+        if (!matchingAsset) {
+          setLoading(false);
+          return;
+        }
+
+        const mappedMachine = {
+          id: matchingAsset.id,
+          machineId: matchingAsset.machineId,
+          name: matchingAsset.name,
+          category: matchingAsset.assetType,
+          image: `https://picsum.photos/seed/cat-${matchingAsset.id}/600/400`,
+          rentalStatus: matchingAsset.rentalStatus === 'active' ? 'Active' : 'Available',
+          status: matchingAsset.status === 'working' ? 'Working' : matchingAsset.status === 'maintenance' ? 'Maintenance' : 'Idle',
+          healthScore: matchingAsset.healthScore,
+          engineHours: matchingAsset.engineHours,
+          idleHours: matchingAsset.idleHours,
+          fuelLevel: 75,
+          year: 2022,
+          serialNumber: matchingAsset.machineId,
+          assignedOperatorId: matchingAsset.assignedOperatorId,
+          currentTask: matchingAsset.status === 'working' ? 'Active assignment' : null,
+          rentalStart: '2026-06-01',
+          rentalEnd: '2026-09-30',
+          dailyRate: 1500,
+          issues: matchingAsset.status === 'maintenance' ? [{ id: '1', title: 'Scheduled maintenance', severity: 'Medium', reportedDate: '2026-07-30' }] : [],
+          upcomingMaintenance: matchingAsset.status === 'maintenance' ? [] : [{ id: 'um1', type: 'Preventive Service', date: '2026-08-15', hours: matchingAsset.engineHours + 250 }]
+        };
+
+        setMachine(mappedMachine);
+
+        // Map operator
+        if (matchingAsset.assignedOperatorId) {
+          const op = (schedData.all_operators || []).find((o: any) => o.operator_id === matchingAsset.assignedOperatorId);
+          if (op) {
+            setOperator({
+              id: op.operator_id,
+              name: op.name,
+              avatar: `https://i.pravatar.cc/150?u=${op.operator_id}`,
+              role: 'Equipment Operator',
+              shift: op.status === 'on_duty' ? 'On Shift' : 'Off Shift'
+            });
+          }
+        }
+
+        // Map site from assignments or manager site
+        const activeSite = (schedData.sites || []).find((s: any) => s.site_id === matchingAsset.siteId) || {
+          id: 'site-01',
+          name: 'Highland Quarry',
+          location: 'Edinburgh, UK'
+        };
+        setSite(activeSite);
+
+        // Fetch maintenance history
+        try {
+          const logs = await fetchMaintenanceLogs(id);
+          const mappedLogs = logs.map((l: any) => ({
+            id: l.id,
+            type: l.event,
+            description: l.remarks || 'Routine servicing',
+            date: l.date,
+            hours: mappedMachine.engineHours,
+            technician: 'Field Service Team',
+            status: l.status === 'done' ? 'Completed' : 'In Progress',
+            cost: 850
+          }));
+          setMaintenanceHistory(mappedLogs);
+        } catch (e) {
+          console.warn("Could not fetch maintenance logs, using mock", e);
+        }
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, [id]);
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   if (!machine) {
     return (
@@ -37,8 +137,6 @@ export function AssetDetails() {
     );
   }
 
-  const operator = getOperator(machine.assignedOperatorId);
-  const site = getSite(machine.currentSiteId);
   const rentalDaysLeft = Math.max(
     0,
     Math.ceil((new Date(machine.rentalEnd).getTime() - Date.now()) / 86400000)
@@ -57,7 +155,7 @@ export function AssetDetails() {
     { label: 'Category', value: machine.category },
     { label: 'Model Year', value: String(machine.year) },
     { label: 'Current Site', value: site?.name ?? 'Unknown' },
-    { label: 'Location', value: site?.location ?? 'Unknown' },
+    { label: 'Location', value: site?.location || site?.address || 'Unknown' },
     { label: 'Daily Rate', value: `$${machine.dailyRate.toLocaleString()}`, icon: DollarSign },
   ];
 
@@ -241,7 +339,7 @@ export function AssetDetails() {
                     <CheckCircle2 className="h-4 w-4" /> No open issues
                   </div>
                 ) : (
-                  machine.issues.map((issue) => (
+              machine.issues.map((issue: any) => (
                     <div key={issue.id} className="rounded-lg border border-border/60 bg-accent/30 p-3">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-foreground">{issue.title}</p>
@@ -264,7 +362,7 @@ export function AssetDetails() {
                 {machine.upcomingMaintenance.length === 0 ? (
                   <p className="py-2 text-sm text-muted-foreground">Nothing scheduled</p>
                 ) : (
-                  machine.upcomingMaintenance.map((um) => (
+              machine.upcomingMaintenance.map((um: any) => (
                     <div key={um.id} className="rounded-lg border border-border/60 bg-accent/30 p-3">
                       <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-foreground">{um.type}</p>
@@ -287,7 +385,7 @@ export function AssetDetails() {
             </CardHeader>
             <CardContent>
               <div className="space-y-3">
-                {machine.maintenanceHistory.map((mh) => (
+                {maintenanceHistory.map((mh) => (
                   <div key={mh.id} className="flex items-start gap-3 rounded-lg border border-border/60 bg-accent/20 p-3">
                     <div className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-info/15 text-info">
                       <Wrench className="h-4 w-4" />

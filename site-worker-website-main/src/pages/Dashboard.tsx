@@ -3,7 +3,6 @@ import { motion } from 'framer-motion';
 import {
   Construction,
   Activity as ActivityIcon,
-  Wrench,
   Users,
   AlertTriangle,
   Gauge,
@@ -15,18 +14,9 @@ import {
   UserPlus,
   ClipboardList,
   Plus,
-  ShieldAlert,
-  CalendarClock,
 } from 'lucide-react';
-import {
-  machines,
-  operators,
-  tasks,
-  activities,
-  currentSite,
-  maintenanceRequests,
-  getOperator,
-} from '@/data/mock-data';
+import { useState, useEffect } from 'react';
+import { fetchDashboardData, fetchAssets, fetchOperations, fetchSchedulingData } from '@/lib/api';
 import { StatCard } from '@/components/common/StatCard';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -36,27 +26,112 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export function Dashboard() {
-  const totalAssets = machines.length;
-  const activeRentals = machines.filter((m) => m.rentalStatus === 'Active').length;
-  const machinesWorking = machines.filter((m) => m.status === 'Working').length;
-  const idleMachines = machines.filter((m) => m.status === 'Idle').length;
-  const operatorsWorking = operators.filter((o) => o.shift === 'On Shift').length;
-  const openIssues = machines.reduce((acc, m) => acc + m.issues.length, 0);
-  const maintenanceDue = machines.filter(
-    (m) => m.upcomingMaintenance.length > 0
-  ).length;
+  const [stats, setStats] = useState<any>(null);
+  const [activitiesList, setActivitiesList] = useState<any[]>([]);
+  const [todaysTasks, setTodaysTasks] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [operatorsList, setOperatorsList] = useState<any[]>([]);
+  const [machinesList, setMachinesList] = useState<any[]>([]);
+  const [siteName, setSiteName] = useState('No assigned site');
 
-  const todaysTasks = tasks.filter(
-    (t) => t.status === 'In Progress' || t.status === 'On Hold' || t.status === 'Delayed'
-  );
+  useEffect(() => {
+    async function load() {
+      try {
+        const dashData = await fetchDashboardData('mgr-01');
+        const assetsData = await fetchAssets('mgr-01');
+        const opsData = await fetchOperations('mgr-01');
+        const schedData = await fetchSchedulingData('mgr-01');
+        
+        const mappedMachines = assetsData.map((a: any) => ({
+          id: a.id,
+          machineId: a.machineId,
+          name: a.name,
+          category: a.assetType,
+          image: `https://picsum.photos/seed/cat-${a.id}/600/400`,
+          rentalStatus: a.rentalStatus === 'active' ? 'Active' : 'Available',
+          status: a.status === 'working' ? 'Working' : a.status === 'maintenance' ? 'Maintenance' : 'Idle',
+          healthScore: a.healthScore,
+          engineHours: a.engineHours,
+          idleHours: a.idleHours,
+          fuelLevel: 75,
+          issues: a.status === 'maintenance' ? [{ id: '1', title: 'Scheduled maintenance', severity: 'Medium' }] : [],
+          upcomingMaintenance: a.status === 'maintenance' ? [] : [{ id: 'um1', type: 'Preventive Service', date: '2026-08-15', hours: a.engineHours + 250 }],
+          maintenanceHistory: [],
+          currentTask: opsData.find((o: any) => o.machineId === a.machineId && o.status === 'in_progress')?.task || null
+        }));
+
+        const mappedActivities = (dashData.activities || []).map((act: any) => ({
+          id: act.id,
+          type: act.type === 'assigned' ? 'equipment_assigned' : 'task_started',
+          title: act.title,
+          description: act.detail,
+          timestamp: act.timestamp,
+          actor: 'System'
+        }));
+
+        const mappedTasks = opsData.map((op: any) => ({
+          id: op.id,
+          title: op.task,
+          machineId: op.machineId,
+          operatorId: op.operatorId,
+          priority: op.priority === 'high' ? 'High' : op.priority === 'low' ? 'Low' : 'Medium',
+          status: op.status === 'in_progress' ? 'In Progress' : op.status === 'completed' ? 'Completed' : 'Pending',
+          progress: op.progress,
+          expectedCompletion: op.expectedCompletion,
+          description: op.task
+        }));
+
+        // Map operators from scheduling data
+        const mappedOps = (schedData.all_operators || []).map((o: any) => ({
+          id: o.operator_id,
+          name: o.name,
+          avatar: `https://i.pravatar.cc/150?u=${o.operator_id}`
+        }));
+
+        setStats(dashData.stats);
+        setSiteName(dashData.site_name || 'No assigned site');
+        setActivitiesList(mappedActivities);
+        setMachinesList(mappedMachines);
+        setOperatorsList(mappedOps);
+        setTodaysTasks(mappedTasks.filter((t: any) => t.status === 'In Progress' || t.status === 'Pending'));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
+
+  const totalAssets = stats?.totalAssets || 0;
+  const activeRentals = stats?.activeRentals || 0;
+  const machinesWorking = stats?.machinesWorking || 0;
+  const idleMachines = stats?.machinesIdle || 0;
+  const operatorsWorking = stats?.operatorsOnDuty || 0;
+  const openIssues = stats?.safetyAlerts || 0;
+  const currentSite = {
+    name: siteName,
+    location: 'Site location is managed by the backend',
+    weather: { condition: 'Operations live', temp: '--', high: '--', low: '--', wind: '--' },
+  };
 
   const quickActions = [
-    { label: 'Assign Operator', icon: UserPlus, to: '/operators', tone: 'text-info' },
+    { label: 'Schedule Task', icon: UserPlus, to: '/scheduling', tone: 'text-info' },
     { label: 'Assign Equipment', icon: Construction, to: '/assets', tone: 'text-primary' },
     { label: 'Create Task', icon: Plus, to: '/operations', tone: 'text-success' },
-    { label: 'Report Issue', icon: ShieldAlert, to: '/maintenance', tone: 'text-warning' },
-    { label: 'Schedule Maintenance', icon: CalendarClock, to: '/maintenance', tone: 'text-info' },
   ];
+
+  const getOperator = (opId: string | null) => {
+    return operatorsList.find(o => o.id === opId);
+  };
 
   return (
     <div className="space-y-6">
@@ -92,7 +167,7 @@ export function Dashboard() {
                 Welcome back, Site Manager
               </p>
               <h1 className="mt-1 text-3xl font-bold tracking-tight text-foreground lg:text-4xl">
-                Highland Ridge Quarry
+                {currentSite.name}
               </h1>
               <p className="mt-2 text-sm text-muted-foreground">
                 {currentSite.location} · {new Date().toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })}
@@ -149,8 +224,7 @@ export function Dashboard() {
         <StatCard index={3} label="Idle Machines" value={idleMachines} icon={TrendingUp} tone="warning" delta={-1} deltaLabel="vs last week" />
         <StatCard index={4} label="Operators Working" value={operatorsWorking} icon={Users} tone="primary" delta={1} deltaLabel="on shift now" />
         <StatCard index={5} label="Open Issues" value={openIssues} icon={AlertTriangle} tone="danger" delta={1} deltaLabel="needs attention" />
-        <StatCard index={6} label="Maintenance Due" value={maintenanceDue} icon={Wrench} tone="warning" delta={0} deltaLabel="scheduled" />
-        <StatCard index={7} label="Tasks In Progress" value={todaysTasks.length} icon={ClipboardList} tone="info" delta={3} deltaLabel="active today" />
+        <StatCard index={6} label="Tasks In Progress" value={todaysTasks.length} icon={ClipboardList} tone="info" delta={3} deltaLabel="active today" />
       </div>
 
       {/* Today's operations + activity */}
@@ -171,7 +245,7 @@ export function Dashboard() {
 
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
             {todaysTasks.slice(0, 6).map((task, i) => {
-              const machine = machines.find((m) => m.id === task.machineId);
+              const machine = machinesList.find((m) => m.machineId === task.machineId);
               const operator = getOperator(task.operatorId);
               return (
                 <motion.div
@@ -245,7 +319,7 @@ export function Dashboard() {
           </div>
           <Card className="border-border">
             <CardContent className="p-4">
-              <ActivityTimeline activities={activities} limit={7} />
+              <ActivityTimeline activities={activitiesList} limit={7} />
             </CardContent>
           </Card>
         </div>
@@ -285,44 +359,6 @@ export function Dashboard() {
         </div>
       </div>
 
-      {/* Maintenance requests preview */}
-      <Card className="border-border">
-        <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-3">
-          <CardTitle className="text-base">Maintenance Requests</CardTitle>
-          <Button asChild variant="outline" size="sm" className="border-border bg-transparent">
-            <Link to="/maintenance">
-              Manage <ArrowRight className="ml-1.5 h-3.5 w-3.5" />
-            </Link>
-          </Button>
-        </CardHeader>
-        <CardContent className="pt-0">
-          <div className="space-y-2">
-            {maintenanceRequests.slice(0, 4).map((req) => {
-              const machine = machines.find((m) => m.id === req.machineId);
-              return (
-                <div
-                  key={req.id}
-                  className="flex items-center gap-3 rounded-lg border border-border/60 bg-accent/30 p-3 transition-colors hover:bg-accent/60"
-                >
-                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-warning/15 text-warning">
-                    <Wrench className="h-4 w-4" />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">
-                      {req.requestType} · {machine?.name ?? req.machineName}
-                    </p>
-                    <p className="truncate text-xs text-muted-foreground">{req.description}</p>
-                  </div>
-                  <div className="hidden shrink-0 items-center gap-2 sm:flex">
-                    <StatusChip status={req.priority} variant="priority" showIcon={false} />
-                    <StatusChip status={req.status} showIcon={false} />
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </CardContent>
-      </Card>
     </div>
   );
 }

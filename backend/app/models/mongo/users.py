@@ -1,11 +1,11 @@
 from typing import Optional, List
 from datetime import datetime
-from pydantic import Field, EmailStr
+from pydantic import Field
 from beanie import Document, Link
 
 class User(Document):
     name: str
-    email: EmailStr
+    email: str
     phone: Optional[str] = None
     password_hash: str
     role: str # 'operator', 'site_manager', 'dealer', 'admin'

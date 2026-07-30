@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,7 +11,6 @@ import {
   Calendar,
   Filter,
 } from 'lucide-react';
-import { tasks, machines, operators, getOperator, getMachine } from '@/data/mock-data';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -28,42 +27,155 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
+import { assignOperator, fetchOperations, fetchAssets, fetchSchedulingData, completeOperation, reassignOperation } from '@/lib/api';
+
 export function Operations() {
+  const [tasksList, setTasksList] = useState<any[]>([]);
+  const [machinesList, setMachinesList] = useState<any[]>([]);
+  const [operatorsList, setOperatorsList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [statusFilter, setStatusFilter] = useState('all');
   const [priorityFilter, setPriorityFilter] = useState('all');
   const [confirmComplete, setConfirmComplete] = useState<string | null>(null);
   const { toast } = useToast();
 
+  const loadData = async () => {
+    try {
+      const ops = await fetchOperations('mgr-01');
+      const assets = await fetchAssets('mgr-01');
+      const sched = await fetchSchedulingData('mgr-01');
+
+      const mappedTasks = ops.map((op: any) => ({
+        id: op.id,
+        title: op.task,
+        description: op.task,
+        machineId: op.machineId,
+        operatorId: op.operatorId,
+        priority: op.priority === 'high' ? 'High' : op.priority === 'low' ? 'Low' : 'Medium',
+        status: op.status === 'in_progress' ? 'In Progress' : op.status === 'completed' ? 'Completed' : 'Pending',
+        progress: op.progress,
+        startTime: op.expectedCompletion,
+        expectedCompletion: op.expectedCompletion
+      }));
+
+      setTasksList(mappedTasks);
+      setMachinesList(assets);
+      setOperatorsList(sched.all_operators || []);
+    } catch (err) {
+      console.error(err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadData();
+  }, []);
+
   const filtered = useMemo(() => {
-    return tasks.filter((t) => {
+    return tasksList.filter((t) => {
       const matchesStatus = statusFilter === 'all' || t.status === statusFilter;
       const matchesPriority = priorityFilter === 'all' || t.priority === priorityFilter;
       return matchesStatus && matchesPriority;
     });
-  }, [statusFilter, priorityFilter]);
+  }, [tasksList, statusFilter, priorityFilter]);
 
-  const handleComplete = (taskId: string) => {
-    const task = tasks.find((t) => t.id === taskId);
+  const handleComplete = async (taskId: string) => {
+    const task = tasksList.find((t) => t.id === taskId);
     setConfirmComplete(null);
-    toast({
-      title: 'Task marked complete',
-      description: task ? `"${task.title}" has been marked as completed.` : 'Task completed.',
-    });
+    try {
+      await completeOperation(taskId);
+      toast({
+        title: 'Task marked complete',
+        description: task ? `"${task.title}" has been marked as completed.` : 'Task completed.',
+      });
+      loadData();
+    } catch (err) {
+      toast({
+        title: 'Error',
+        description: 'Failed to complete task on server.',
+        variant: 'destructive'
+      });
+    }
   };
 
-  const handleReassign = (taskId: string) => {
-    toast({
-      title: 'Reassignment started',
-      description: 'Select a new operator for this task from the operator list.',
-    });
+  const handleReassign = async (taskId: string) => {
+    const candidates = operatorsList.filter((op) => op.status === 'available' || op.status === 'on_duty');
+    const operatorId = window.prompt(`Enter the new operator ID:\n${candidates.map((op) => `${op.name}: ${op.operator_id}`).join('\n')}`);
+    if (!operatorId) return;
+    try {
+      await reassignOperation(taskId, operatorId);
+      toast({ title: 'Operator reassigned', description: 'The operation has been updated.' });
+      loadData();
+    } catch (error) {
+      toast({ title: 'Unable to reassign', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+    }
+  };
+
+  const handleCreateTask = async () => {
+    const assetId = window.prompt(`Asset ID:\n${machinesList.map((asset) => `${asset.name}: ${asset.id}`).join('\n')}`);
+    if (!assetId) return;
+    const operatorId = window.prompt(`Operator ID:\n${operatorsList.map((operator) => `${operator.name}: ${operator.operator_id}`).join('\n')}`);
+    if (!operatorId) return;
+    const jobTitle = window.prompt('Task title');
+    if (!jobTitle) return;
+    const totalHours = Number(window.prompt('Duration in hours', '8'));
+    if (!Number.isFinite(totalHours) || totalHours <= 0) {
+      toast({ title: 'Invalid duration', description: 'Enter a positive number of hours.', variant: 'destructive' });
+      return;
+    }
+    try {
+      await assignOperator({
+        asset_id: assetId,
+        operator_id: operatorId,
+        job_title: jobTitle,
+        start_date: new Date().toISOString().slice(0, 10),
+        start_time: new Date().toTimeString().slice(0, 5),
+        total_hours: totalHours,
+        site_id: 'site-01',
+      });
+      toast({ title: 'Task created', description: 'The operator and machine have been scheduled.' });
+      loadData();
+    } catch (error) {
+      toast({ title: 'Unable to create task', description: error instanceof Error ? error.message : 'Please try again.', variant: 'destructive' });
+    }
   };
 
   const stats = {
-    total: tasks.length,
-    inProgress: tasks.filter((t) => t.status === 'In Progress').length,
-    completed: tasks.filter((t) => t.status === 'Completed').length,
-    delayed: tasks.filter((t) => t.status === 'Delayed' || t.status === 'On Hold').length,
+    total: tasksList.length,
+    inProgress: tasksList.filter((t) => t.status === 'In Progress').length,
+    completed: tasksList.filter((t) => t.status === 'Completed').length,
+    delayed: tasksList.filter((t) => t.status === 'Delayed' || t.status === 'On Hold').length,
   };
+
+  const getMachine = (id: string) => {
+    const m = machinesList.find((asset: any) => asset.id === id || asset.machineId === id);
+    if (!m) return null;
+    return {
+      id: m.id,
+      name: m.name,
+      machineId: m.machineId,
+      image: `https://picsum.photos/seed/cat-${m.id}/600/400`
+    };
+  };
+
+  const getOperator = (id: string | null) => {
+    const op = operatorsList.find((o) => o.operator_id === id);
+    if (!op) return null;
+    return {
+      name: op.name,
+      avatar: `https://i.pravatar.cc/150?u=${op.operator_id}`,
+      role: op.certified_equipment_types?.length ? `${op.certified_equipment_types[0]} Operator` : 'Operator'
+    };
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -72,7 +184,7 @@ export function Operations() {
         description="Track and manage all site operations and tasks"
         icon={<ClipboardList className="h-5 w-5" />}
         actions={
-          <Button className="bg-primary text-primary-foreground hover:bg-primary/90">
+          <Button className="bg-primary text-primary-foreground hover:bg-primary/90" onClick={handleCreateTask}>
             <Plus className="mr-1.5 h-4 w-4" /> Create Task
           </Button>
         }
