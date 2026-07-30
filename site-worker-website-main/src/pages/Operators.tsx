@@ -51,9 +51,7 @@ export function Operators() {
         const mapped = (schedData.all_operators || []).map((o: any) => {
           const activeTask = opsData.find((op: any) => op.operatorId === o.operator_id && op.status === 'in_progress');
           return {
-            id: o.operator_id,
-            employeeId: o.license_number || `EMP-${o.operator_id.slice(0, 4).upper()}`,
-            name: o.name,
+            employeeId: o.license_number || `EMP-${o.operator_id.slice(0, 4).toUpperCase()}`,
             role: o.certified_equipment_types?.length ? `${o.certified_equipment_types.join(', ')} Operator` : 'General Operator',
             avatar: `https://i.pravatar.cc/150?u=${o.operator_id}`,
             assignedMachineId: activeTask ? activeTask.machineId : null,
