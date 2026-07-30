@@ -91,6 +91,10 @@ async def update_task_status(assignment_id: str, req: TaskStatusUpdateRequest, d
     elif db_status == 'in_progress': db_status = 'active'
     
     assignment.assignment_status = db_status
+    await db.flush()
+    
+    from app.api.v1.site_manager import update_asset_status
+    await update_asset_status(assignment.asset_id, db)
     await db.commit()
     return {"message": "Status updated"}
 

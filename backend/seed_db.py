@@ -173,15 +173,15 @@ async def seed():
         # All rented assets start 'idle' (rented but no task assigned yet). eq-7 has no rental, so 'available'.
         mid_val = str(manager_user.id)
         await conn.execute(text("""
-            INSERT INTO assets (asset_id, qr_code, rfid_tag, asset_name, equipment_type, manufacturer, model, serial_number, purchase_year, engine_type, current_status, total_engine_hours, fuel_capacity, assigned_site_manager) VALUES
-            ('eq-1', 'QR-320-001', 'RFID-320-001', 'CAT 320 Hydraulic Excavator',  'Excavator',      'Caterpillar', '320 GC',  'MX-320-001', 2022, 'Diesel', 'idle',      3820.0, 400.0, :mid),
-            ('eq-2', 'QR-D6-014',  'RFID-D6-014',  'CAT D6 Dozer',                 'Dozer',          'Caterpillar', 'D6',      'MX-D6-014',  2021, 'Diesel', 'idle',      5210.0, 500.0, :mid),
-            ('eq-3', 'QR-950-007', 'RFID-950-007', 'CAT 950 GC Wheel Loader',      'Wheel Loader',   'Caterpillar', '950 GC',  'MX-950-007', 2023, 'Diesel', 'idle',      2740.0, 350.0, :mid),
-            ('eq-4', 'QR-420-022', 'RFID-420-022', 'CAT 420 Backhoe Loader',       'Backhoe Loader', 'Caterpillar', '420F2',   'MX-420-022', 2022, 'Diesel', 'idle',      1980.0, 280.0, :mid),
-            ('eq-5', 'QR-140-009', 'RFID-140-009', 'CAT 140 Motor Grader',         'Motor Grader',   'Caterpillar', '140 GC',  'MX-140-009', 2020, 'Diesel', 'idle',      6420.0, 450.0, :mid),
-            ('eq-6', 'QR-336-003', 'RFID-336-003', 'CAT 336 Hydraulic Excavator',  'Excavator',      'Caterpillar', '336 GC',  'MX-336-003', 2023, 'Diesel', 'idle',      4110.0, 480.0, :mid),
-            ('eq-7', 'QR-966-011', 'RFID-966-011', 'CAT 966M Wheel Loader',        'Wheel Loader',   'Caterpillar', '966M',    'MX-966-011', 2024, 'Diesel', 'available', 980.0,  380.0, NULL),
-            ('eq-8', 'QR-D8-018',  'RFID-D8-018',  'CAT D8 Dozer',                 'Dozer',          'Caterpillar', 'D8T',     'MX-D8-018',  2019, 'Diesel', 'idle',      7320.0, 550.0, :mid)
+            INSERT INTO assets (asset_id, qr_code, rfid_tag, asset_name, equipment_type, manufacturer, model, serial_number, purchase_year, engine_type, current_status, total_engine_hours, fuel_capacity, assigned_site_manager, max_payload_tons) VALUES
+            ('eq-1', 'QR-320-001', 'RFID-320-001', 'CAT 320 Hydraulic Excavator',  'Excavator',      'Caterpillar', '320 GC',  'MX-320-001', 2022, 'Diesel', 'idle',      3820.0, 400.0, :mid, 1.2),
+            ('eq-2', 'QR-D6-014',  'RFID-D6-014',  'CAT D6 Dozer',                 'Dozer',          'Caterpillar', 'D6',      'MX-D6-014',  2021, 'Diesel', 'idle',      5210.0, 500.0, :mid, 4.0),
+            ('eq-3', 'QR-950-007', 'RFID-950-007', 'CAT 950 GC Wheel Loader',      'Wheel Loader',   'Caterpillar', '950 GC',  'MX-950-007', 2023, 'Diesel', 'idle',      2740.0, 350.0, :mid, 5.0),
+            ('eq-4', 'QR-420-022', 'RFID-420-022', 'CAT 420 Backhoe Loader',       'Backhoe Loader', 'Caterpillar', '420F2',   'MX-420-022', 2022, 'Diesel', 'idle',      1980.0, 280.0, :mid, 1.0),
+            ('eq-5', 'QR-140-009', 'RFID-140-009', 'CAT 140 Motor Grader',         'Motor Grader',   'Caterpillar', '140 GC',  'MX-140-009', 2020, 'Diesel', 'idle',      6420.0, 450.0, :mid, 3.0),
+            ('eq-6', 'QR-336-003', 'RFID-336-003', 'CAT 336 Hydraulic Excavator',  'Excavator',      'Caterpillar', '336 GC',  'MX-336-003', 2023, 'Diesel', 'idle',      4110.0, 480.0, :mid, 2.2),
+            ('eq-7', 'QR-966-011', 'RFID-966-011', 'CAT 966M Wheel Loader',        'Wheel Loader',   'Caterpillar', '966M',    'MX-966-011', 2024, 'Diesel', 'available', 980.0,  380.0, NULL, 6.5),
+            ('eq-8', 'QR-D8-018',  'RFID-D8-018',  'CAT D8 Dozer',                 'Dozer',          'Caterpillar', 'D8T',     'MX-D8-018',  2019, 'Diesel', 'idle',      7320.0, 550.0, :mid, 8.0)
         """), {
             "mid": mid_val
         })
