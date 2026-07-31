@@ -1,11 +1,11 @@
 from typing import Optional, List
 from datetime import datetime
-from pydantic import Field, EmailStr
+from pydantic import Field
 from beanie import Document, Link
 
 class User(Document):
     name: str
-    email: EmailStr
+    email: str
     phone: Optional[str] = None
     password_hash: str
     role: str # 'operator', 'site_manager', 'dealer', 'admin'
@@ -23,6 +23,7 @@ class Operator(Document):
     experience_years: int
     assigned_site_id: Optional[str] = None # FK to postgres site_id, keep as string
     status: str = "available"
+    certified_equipment_types: List[str] = []
     shift_status: str = "off_duty"
     safety_score: int = 100
     emergency_contact: Optional[str] = None

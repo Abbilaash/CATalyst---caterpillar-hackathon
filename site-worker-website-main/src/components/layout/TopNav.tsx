@@ -5,9 +5,7 @@ import {
   Bell,
   Menu,
   ChevronDown,
-  Settings,
   LogOut,
-  CircleUser,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -41,6 +39,12 @@ const toneDot: Record<string, string> = {
 
 export function TopNav({ onMenuClick }: TopNavProps) {
   const navigate = useNavigate();
+  const email = localStorage.getItem('site-manager-email') || 'manager@caterpillar.com';
+  const signOut = () => {
+    localStorage.removeItem('site-manager-token');
+    localStorage.removeItem('site-manager-email');
+    window.dispatchEvent(new Event('site-manager-sign-out'));
+  };
 
   return (
     <header className="sticky top-0 z-20 flex h-16 items-center gap-3 border-b border-border bg-card/80 px-4 backdrop-blur-md lg:px-6">
@@ -120,7 +124,7 @@ export function TopNav({ onMenuClick }: TopNavProps) {
                 className="h-7 w-7 rounded-md object-cover ring-1 ring-border"
               />
               <div className="hidden text-left leading-tight sm:block">
-                <p className="text-xs font-semibold text-foreground">Frank Reynolds</p>
+                <p className="text-xs font-semibold text-foreground">Site Manager</p>
                 <p className="text-[10px] text-muted-foreground">Site Manager</p>
               </div>
               <ChevronDown className="hidden h-3.5 w-3.5 text-muted-foreground sm:block" />
@@ -134,21 +138,12 @@ export function TopNav({ onMenuClick }: TopNavProps) {
                 className="h-9 w-9 rounded-md object-cover ring-1 ring-border"
               />
               <div className="leading-tight">
-                <p className="text-sm font-semibold text-foreground">Frank Reynolds</p>
-                <p className="text-xs text-muted-foreground">frank.reynolds@cat-rental.com</p>
+                <p className="text-sm font-semibold text-foreground">Site Manager</p>
+                <p className="text-xs text-muted-foreground">{email}</p>
               </div>
             </DropdownMenuLabel>
             <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuItem className="cursor-pointer text-foreground hover:bg-accent" onClick={() => navigate('/settings')}>
-              <CircleUser className="mr-2 h-4 w-4" />
-              My Profile
-            </DropdownMenuItem>
-            <DropdownMenuItem className="cursor-pointer text-foreground hover:bg-accent" onClick={() => navigate('/settings')}>
-              <Settings className="mr-2 h-4 w-4" />
-              Settings
-            </DropdownMenuItem>
-            <DropdownMenuSeparator className="bg-border" />
-            <DropdownMenuItem className="cursor-pointer text-destructive hover:bg-destructive/10">
+            <DropdownMenuItem className="cursor-pointer text-destructive hover:bg-destructive/10" onClick={signOut}>
               <LogOut className="mr-2 h-4 w-4" />
               Sign out
             </DropdownMenuItem>

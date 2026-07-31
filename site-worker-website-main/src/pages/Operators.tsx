@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -10,7 +10,7 @@ import {
   Award,
   Clock,
 } from 'lucide-react';
-import { operators } from '@/data/mock-data';
+import { fetchSchedulingData, fetchOperations } from '@/lib/api';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -36,12 +36,45 @@ import {
 import { cn } from '@/lib/utils';
 
 export function Operators() {
+  const [operatorsList, setOperatorsList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [shiftFilter, setShiftFilter] = useState('all');
   const [availabilityFilter, setAvailabilityFilter] = useState('all');
 
+  useEffect(() => {
+    async function load() {
+      try {
+        const schedData = await fetchSchedulingData('mgr-01');
+        const opsData = await fetchOperations('mgr-01');
+
+        const mapped = (schedData.all_operators || []).map((o: any) => {
+          const activeTask = opsData.find((op: any) => op.operatorId === o.operator_id && op.status === 'in_progress');
+          return {
+            employeeId: o.license_number || `EMP-${o.operator_id.slice(0, 4).toUpperCase()}`,
+            role: o.certified_equipment_types?.length ? `${o.certified_equipment_types.join(', ')} Operator` : 'General Operator',
+            avatar: `https://i.pravatar.cc/150?u=${o.operator_id}`,
+            assignedMachineId: activeTask ? activeTask.machineId : null,
+            currentTask: activeTask ? activeTask.task : null,
+            shift: o.status === 'on_duty' ? 'On Shift' : 'Off Shift',
+            experienceYears: o.experience_years,
+            safetyScore: 95,
+            availability: activeTask ? 'On Task' : o.status === 'on_duty' ? 'Available' : 'Unavailable',
+          };
+        });
+
+        setOperatorsList(mapped);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
+
   const filtered = useMemo(() => {
-    return operators.filter((o) => {
+    return operatorsList.filter((o) => {
       const q = query.toLowerCase();
       const matchesQuery =
         o.name.toLowerCase().includes(q) ||
@@ -51,7 +84,15 @@ export function Operators() {
       const matchesAvail = availabilityFilter === 'all' || o.availability === availabilityFilter;
       return matchesQuery && matchesShift && matchesAvail;
     });
-  }, [query, shiftFilter, availabilityFilter]);
+  }, [operatorsList, query, shiftFilter, availabilityFilter]);
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -106,7 +147,7 @@ export function Operators() {
       </Card>
 
       <p className="text-sm text-muted-foreground">
-        Showing <span className="font-medium text-foreground">{filtered.length}</span> of {operators.length} operators
+        Showing <span className="font-medium text-foreground">{filtered.length}</span> of {operatorsList.length} operators
       </p>
 
       {filtered.length === 0 ? (

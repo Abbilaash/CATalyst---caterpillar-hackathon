@@ -98,12 +98,6 @@ async def run_alert_engine(
         for asset, idle_hrs in idle_res.all():
             if await _dedup_check("idle_asset", asset.asset_id):
                 continue
-            site_name = "Dealer Yard"
-            if None:
-                s = await db.execute(select(Site).where(Site.site_id == None))
-                site_obj = s.scalar_one_or_none()
-                if site_obj:
-                    site_name = site_obj.site_name
 
             alert = await _save_and_push({
                 "user_id": "dealer",
@@ -273,16 +267,9 @@ async def run_alert_engine(
         for asset in m1_res.scalars().all():
             if await _dedup_check("unassigned_on_site", asset.asset_id, hours=2):
                 continue
-            # Find the site manager user for push
-            mgr_user_id = None
-            if None:
-                site_q = await db.execute(select(Site).where(Site.site_id == None))
-                site_obj = site_q.scalar_one_or_none()
-                if site_obj and site_obj.manager_id:
-                    mgr_user_id = site_obj.manager_id
 
             alert = await _save_and_push({
-                "user_id": mgr_user_id or "manager",
+                "user_id": "manager",
                 "title": "Unassigned Equipment on Site",
                 "message": f"{asset.asset_name} has no operator assigned. "
                            f"Assign an operator to start billing hours.",

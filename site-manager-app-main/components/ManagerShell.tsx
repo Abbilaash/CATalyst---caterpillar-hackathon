@@ -8,7 +8,7 @@ import type { Role } from '@/types';
 const TABS = [
   { name: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, roles: ['manager'] as Role[] },
   { name: 'assets', label: 'Assets', icon: Boxes, roles: ['manager'] as Role[] },
-  { name: 'operators', label: 'Operators', icon: Users, roles: ['manager'] as Role[] },
+  { name: 'scheduling', label: 'Scheduling', icon: Users, roles: ['manager'] as Role[] },
   { name: 'operations', label: 'Operations', icon: Activity, roles: ['manager'] as Role[] },
   { name: 'profile', label: 'Profile', icon: User, roles: ['manager'] as Role[] },
 ];
@@ -16,7 +16,7 @@ const TABS = [
 const ROUTES: Record<string, string> = {
   dashboard: '/(manager)/dashboard',
   assets: '/(manager)/assets',
-  operators: '/(manager)/operators',
+  scheduling: '/(manager)/scheduling',
   operations: '/(manager)/operations',
   profile: '/(manager)/profile',
 };

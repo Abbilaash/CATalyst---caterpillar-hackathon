@@ -42,6 +42,16 @@ export const fetchBrief = async () => {
   return response.data;
 };
 
+export const fetchManagerProfile = async () => {
+  const response = await api.get('/auth/profile/manager');
+  return response.data;
+};
+
+export const updateManagerProfile = async (payload: Record<string, unknown>) => {
+  const response = await api.put('/auth/profile/manager', payload);
+  return response.data;
+};
+
 export const fetchMapMarkers = async () => {
   const response = await api.get('/live/map-markers');
   return response.data;

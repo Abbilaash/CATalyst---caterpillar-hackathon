@@ -1,4 +1,3 @@
-import { useState, useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -11,7 +10,8 @@ import {
   Fuel,
   Wrench,
 } from 'lucide-react';
-import { machines, operators, categoryIcon } from '@/data/mock-data';
+import { useState, useMemo, useEffect } from 'react';
+import { fetchAssets, fetchSchedulingData } from '@/lib/api';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -39,19 +39,58 @@ import { cn } from '@/lib/utils';
 type SortKey = 'name' | 'machineId' | 'category' | 'rentalStatus' | 'healthScore' | 'engineHours';
 
 export function Assets() {
+  const [machinesList, setMachinesList] = useState<any[]>([]);
+  const [operatorsList, setOperatorsList] = useState<any[]>([]);
+  const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [categoryFilter, setCategoryFilter] = useState<string>('all');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [sortKey, setSortKey] = useState<SortKey>('name');
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('asc');
+  const categoryIcon = (_category: string) => Construction;
+
+  useEffect(() => {
+    async function load() {
+      try {
+        const assetsData = await fetchAssets('mgr-01');
+        const schedData = await fetchSchedulingData('mgr-01');
+        
+        const mapped = assetsData.map((a: any) => ({
+          id: a.id,
+          machineId: a.machineId,
+          name: a.name,
+          category: a.assetType,
+          image: `https://picsum.photos/seed/cat-${a.id}/600/400`,
+          rentalStatus: a.rentalStatus === 'active' ? 'Active' : 'Available',
+          status: a.status === 'working' ? 'Working' : a.status === 'maintenance' ? 'Maintenance' : 'Idle',
+          healthScore: a.healthScore,
+          engineHours: a.engineHours,
+          idleHours: a.idleHours,
+          fuelLevel: 75,
+          year: 2022,
+          serialNumber: a.machineId,
+          assignedOperatorId: a.assignedOperatorId,
+          currentTask: a.status === 'working' ? 'Active assignment' : null
+        }));
+
+        setMachinesList(mapped);
+        setOperatorsList(schedData.all_operators || []);
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   const categories = useMemo(
-    () => Array.from(new Set(machines.map((m) => m.category))),
-    []
+    () => Array.from(new Set(machinesList.map((m) => m.category))),
+    [machinesList]
   );
 
   const filtered = useMemo(() => {
-    let result = machines.filter((m) => {
+    let result = machinesList.filter((m) => {
       const q = query.toLowerCase();
       const matchesQuery =
         m.name.toLowerCase().includes(q) ||
@@ -73,7 +112,7 @@ export function Assets() {
     });
 
     return result;
-  }, [query, categoryFilter, statusFilter, sortKey, sortDir]);
+  }, [machinesList, query, categoryFilter, statusFilter, sortKey, sortDir]);
 
   const toggleSort = (key: SortKey) => {
     if (sortKey === key) {
@@ -84,8 +123,18 @@ export function Assets() {
     }
   };
 
-  const getOperatorName = (id: string | null) =>
-    operators.find((o) => o.id === id)?.name ?? 'Unassigned';
+  const getOperatorName = (id: string | null) => {
+    const op = operatorsList.find((o) => o.operator_id === id);
+    return op ? op.name : 'Unassigned';
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -146,7 +195,7 @@ export function Assets() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">
           Showing <span className="font-medium text-foreground">{filtered.length}</span> of{' '}
-          {machines.length} machines
+          {machinesList.length} machines
         </p>
       </div>
 

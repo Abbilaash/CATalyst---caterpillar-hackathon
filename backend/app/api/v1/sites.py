@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, desc, and_
 from app.db.postgres import get_db
-from app.models.postgres.core import Site, Asset, Rental, RentalRequest
+from app.models.postgres.core import Site, Asset, Rental, RentalRequest, Assignment
 from pydantic import BaseModel
 
 router = APIRouter()

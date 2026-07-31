@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import {
   Wrench,
@@ -12,11 +12,6 @@ import {
   DollarSign,
   User,
 } from 'lucide-react';
-import {
-  machines,
-  maintenanceRequests,
-  getMachine,
-} from '@/data/mock-data';
 import { PageHeader } from '@/components/common/PageHeader';
 import { StatusChip } from '@/components/common/StatusChip';
 import { ProgressBar } from '@/components/common/ProgressBar';
@@ -33,32 +28,112 @@ import {
 import { useToast } from '@/hooks/use-toast';
 import { cn } from '@/lib/utils';
 
+import { fetchAssets, fetchMaintenanceLogs } from '@/lib/api';
+
 export function Maintenance() {
+  const [machinesList, setMachinesList] = useState<any[]>([]);
+  const [upcomingSorted, setUpcomingSorted] = useState<any[]>([]);
+  const [overdueMachines, setOverdueMachines] = useState<any[]>([]);
+  const [maintenanceRequests, setMaintenanceRequests] = useState<any[]>([]);
+  const [historyList, setHistoryList] = useState<any[]>([]);
+  const [totalCost, setTotalCost] = useState(0);
+  const [loading, setLoading] = useState(true);
   const [approveRequest, setApproveRequest] = useState<string | null>(null);
   const { toast } = useToast();
 
-  // Upcoming services across all machines
-  const upcoming = machines.flatMap((m) =>
-    m.upcomingMaintenance.map((um) => ({ ...um, machine: m }))
-  );
-  const upcomingSorted = [...upcoming].sort(
-    (a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()
-  );
+  useEffect(() => {
+    async function load() {
+      try {
+        const assets = await fetchAssets('mgr-01');
+        
+        const mappedMachines = assets.map((a: any) => ({
+          id: a.id,
+          machineId: a.machineId,
+          name: a.name,
+          category: a.assetType,
+          image: `https://picsum.photos/seed/cat-${a.id}/600/400`,
+          status: a.status === 'working' ? 'Working' : a.status === 'maintenance' ? 'Maintenance' : 'Idle',
+          healthScore: a.healthScore,
+          engineHours: a.engineHours,
+          idleHours: a.idleHours,
+          issues: a.status === 'maintenance' ? [{ id: '1', title: 'Scheduled maintenance', severity: 'Medium' }] : [],
+        }));
 
-  // Overdue machines (health < 75 or has overdue-ish upcoming within 3 days OR in-progress maintenance)
-  const overdueMachines = machines.filter(
-    (m) => m.healthScore < 75 || m.status === 'Maintenance'
-  );
+        setMachinesList(mappedMachines);
 
-  // Service history (all completed maintenance records)
-  const history = machines
-    .flatMap((m) => m.maintenanceHistory.map((mh) => ({ ...mh, machine: m })))
-    .filter((mh) => mh.status === 'Completed')
-    .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+        // Fetch maintenance logs for all assets
+        const allLogsPromises = assets.map(async (a: any) => {
+          try {
+            const logs = await fetchMaintenanceLogs(a.id);
+            return logs.map((l: any) => ({
+              ...l,
+              assetId: a.id,
+              machineName: a.name,
+              machineIdStr: a.machineId,
+              image: `https://picsum.photos/seed/cat-${a.id}/600/400`
+            }));
+          } catch (e) {
+            return [];
+          }
+        });
 
-  const totalMaintenanceCost = machines
-    .flatMap((m) => m.maintenanceHistory)
-    .reduce((acc, mh) => acc + mh.cost, 0);
+        const allLogsResults = await Promise.all(allLogsPromises);
+        const flatLogs = allLogsResults.flat();
+
+        // Separate upcoming, requests, history
+        const upcomingMapped = flatLogs
+          .filter((l: any) => l.status === 'upcoming' || l.status === 'scheduled')
+          .map((l: any) => ({
+            id: l.id,
+            type: l.event,
+            date: l.date,
+            hours: mappedMachines.find((m: any) => m.id === l.assetId)?.engineHours || 1000,
+            machine: mappedMachines.find((m: any) => m.id === l.assetId)
+          }));
+        setUpcomingSorted(upcomingMapped.sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime()));
+
+        const overdueMapped = mappedMachines.filter(
+          (m: any) => m.healthScore < 75 || m.status === 'Maintenance'
+        );
+        setOverdueMachines(overdueMapped);
+
+        const historyMapped = flatLogs
+          .filter((l: any) => l.status === 'done' || l.status === 'completed' || l.status === 'Completed')
+          .map((l: any) => ({
+            id: l.id,
+            type: l.event,
+            description: l.remarks || 'Routine maintenance',
+            date: l.date,
+            hours: mappedMachines.find((m: any) => m.id === l.assetId)?.engineHours || 1000,
+            cost: 850,
+            machine: mappedMachines.find((m: any) => m.id === l.assetId)
+          }));
+        setHistoryList(historyMapped);
+
+        const reqs = flatLogs
+          .filter((l: any) => l.status === 'requested' || l.status === 'Requested')
+          .map((l: any) => ({
+            id: l.id,
+            machineId: l.assetId,
+            machineName: l.machineName,
+            requestType: l.event,
+            description: l.remarks || 'Operator reported issue',
+            priority: 'Medium',
+            status: 'Requested',
+            requestedBy: 'Operator',
+            requestedDate: l.date,
+            estimatedCost: 950
+          }));
+        setMaintenanceRequests(reqs);
+        setTotalCost(historyMapped.reduce((sum, h) => sum + h.cost, 0));
+      } catch (err) {
+        console.error(err);
+      } finally {
+        setLoading(false);
+      }
+    }
+    load();
+  }, []);
 
   const handleApprove = (id: string) => {
     setApproveRequest(null);
@@ -67,6 +142,18 @@ export function Maintenance() {
       description: 'Service has been scheduled and the technician notified.',
     });
   };
+
+  const getMachine = (id: string) => {
+    return machinesList.find((m) => m.id === id);
+  };
+
+  if (loading) {
+    return (
+      <div className="flex h-[50vh] items-center justify-center">
+        <div className="h-8 w-8 animate-spin rounded-full border-4 border-primary border-t-transparent" />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -83,10 +170,10 @@ export function Maintenance() {
 
       {/* Summary cards */}
       <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
-        <StatCard index={0} label="Upcoming Services" value={upcoming.length} icon={CalendarClock} tone="primary" />
+        <StatCard index={0} label="Upcoming Services" value={upcomingSorted.length} icon={CalendarClock} tone="primary" />
         <StatCard index={1} label="Overdue / At Risk" value={overdueMachines.length} icon={AlertTriangle} tone="danger" />
         <StatCard index={2} label="Open Requests" value={maintenanceRequests.filter((r) => r.status === 'Requested').length} icon={Clock} tone="warning" />
-        <StatCard index={3} label="Total Cost (YTD)" value={`$${(totalMaintenanceCost / 1000).toFixed(1)}k`} icon={DollarSign} tone="success" />
+        <StatCard index={3} label="Total Cost (YTD)" value={`$${(totalCost / 1000).toFixed(1)}k`} icon={DollarSign} tone="success" />
       </div>
 
       <Tabs defaultValue="upcoming" className="space-y-4">
@@ -239,7 +326,7 @@ export function Maintenance() {
               </CardTitle>
             </CardHeader>
             <CardContent className="space-y-2">
-              {history.map((mh, i) => (
+              {historyList.map((mh, i) => (
                 <motion.div
                   key={mh.id}
                   initial={{ opacity: 0, x: -8 }}
@@ -267,7 +354,7 @@ export function Maintenance() {
         {/* Machine health cards */}
         <TabsContent value="health" className="space-y-3">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-            {machines.map((m, i) => (
+            {machinesList.map((m, i) => (
               <motion.div
                 key={m.id}
                 initial={{ opacity: 0, y: 10 }}

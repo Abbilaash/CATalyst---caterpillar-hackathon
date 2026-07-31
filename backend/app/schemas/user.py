@@ -1,16 +1,16 @@
-from pydantic import BaseModel, EmailStr
+from pydantic import BaseModel, field_validator
 from typing import Optional, List
 from datetime import datetime
 
 class UserCreate(BaseModel):
     name: str
-    email: EmailStr
+    email: str
     password: str
     phone: Optional[str] = None
     role: str # operator, site_manager, dealer
 
 class UserLogin(BaseModel):
-    email: EmailStr
+    email: str
     password: str
 
 class Token(BaseModel):
@@ -20,7 +20,7 @@ class Token(BaseModel):
 class UserResponse(BaseModel):
     id: str
     name: str
-    email: EmailStr
+    email: str
     role: str
     status: str
 
