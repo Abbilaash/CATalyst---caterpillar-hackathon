@@ -1,0 +1,4 @@
+paho-mqtt>=2.0.0
+amqtt>=0.10.1
+setuptools<70.0.0
+psycopg2-binary>=2.9.0
