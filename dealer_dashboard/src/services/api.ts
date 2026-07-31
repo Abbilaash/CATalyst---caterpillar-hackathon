@@ -12,6 +12,11 @@ export const fetchEquipment = async () => {
   return response.data;
 };
 
+export const fetchHealthTrend = async (id: string) => {
+  const response = await api.get(`/equipment/${id}/health-trend`);
+  return response.data;
+};
+
 export const fetchKPIs = async () => {
   const response = await api.get('/analytics/kpis');
   return response.data;

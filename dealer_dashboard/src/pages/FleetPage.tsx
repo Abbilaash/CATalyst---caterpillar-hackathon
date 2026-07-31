@@ -43,7 +43,6 @@ export function FleetPage() {
   useEffect(() => {
     // Determine WS protocol based on current location
     const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
-    // Use the proxy if in dev, or relative path in production
     const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/telemetry`;
     const ws = new WebSocket(wsUrl);
     
@@ -249,13 +248,13 @@ export function FleetPage() {
                         <Badge tone={statusTone(eq.status)} dot={eq.status === 'critical'}>{statusLabel[eq.status]}</Badge>
                       </td>
                       <td className="px-3 py-3 text-xs">
-                        {eq.telemetry ? (
-                          <div className="flex flex-col gap-1">
-                            <span className="text-ink-100"><span className="text-ink-200">RPM:</span> {eq.telemetry.engine_rpm || 0}</span>
-                            <span className="text-ink-100"><span className="text-ink-200">Fuel:</span> {eq.telemetry.fuel_level_percent ? eq.telemetry.fuel_level_percent.toFixed(1) : 0}%</span>
+                        {eq.telemetry?.engine_status === 'ON' ? (
+                          <div className="flex flex-col">
+                            <span className="text-ok">RPM: {eq.telemetry.engine_rpm}</span>
+                            <span className="text-cat-yellow">Fuel: {eq.telemetry.fuel_level_percent?.toFixed(1)}%</span>
                           </div>
                         ) : (
-                          <span className="text-ink-300">Offline</span>
+                          <span className="text-ink-300">Engine Off</span>
                         )}
                       </td>
                     </tr>

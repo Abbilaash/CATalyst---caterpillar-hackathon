@@ -8,12 +8,12 @@ import {
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer,
 } from 'recharts';
-import { fetchEquipment, fetchRecommendations, fetchMaintenanceLogs } from '@/services/api';
 import { Badge, statusTone } from '@/components/ui/Badge';
 import { RingGauge } from '@/components/ui/RingGauge';
 import { Button } from '@/components/ui/Button';
 import { PageContainer, EmptyState } from '@/components/ui/Page';
 import { RecommendationCard } from '@/components/mission/RecommendationCard';
+import { fetchEquipment, fetchRecommendations, fetchMaintenanceLogs } from '@/services/api';
 
 const statusLabel: Record<string, string> = {
   working: 'Working', idle: 'Idle', critical: 'Critical', maintenance: 'Maintenance', transit: 'Transit',
@@ -23,14 +23,6 @@ const tooltipStyle = {
   backgroundColor: '#1B1D20', border: '1px solid rgba(255,255,255,0.08)',
   borderRadius: '0.75rem', fontSize: '0.75rem', color: '#C7CCD4',
 };
-
-// Synthetic hourly health trend
-const healthTrend = Array.from({ length: 12 }, (_, i) => ({
-  hour: `${i * 2}:00`,
-  health: Math.max(50, 96 - i * 1.5 - Math.random() * 4),
-}));
-
-
 
 export function EquipmentDetailsPage() {
   const { id } = useParams();
@@ -59,6 +51,23 @@ export function EquipmentDetailsPage() {
       }
     };
     load();
+  }, [id]);
+
+  useEffect(() => {
+    if (!id) return;
+    const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
+    const wsUrl = `${protocol}//${window.location.host}/api/v1/ws/telemetry/${id}`;
+    const ws = new WebSocket(wsUrl);
+    
+    ws.onmessage = (event) => {
+      try {
+        const telemetry = JSON.parse(event.data);
+        if (telemetry.asset_id === id) {
+          setEq((prev: any) => prev ? { ...prev, telemetry } : prev);
+        }
+      } catch (err) {}
+    };
+    return () => ws.close();
   }, [id]);
 
   if (loading) {
@@ -134,32 +143,43 @@ export function EquipmentDetailsPage() {
         {/* Right: charts + timeline + AI */}
         <div className="lg:col-span-2 space-y-4">
           <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ delay: 0.05 }} className="card p-5">
-            <div className="mb-3 flex items-center gap-2.5">
+            <div className="mb-4 flex items-center gap-2.5">
               <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-cat-yellow/10 text-cat-yellow">
-                <TrendingUp className="h-5 w-5" />
+                <Gauge className="h-5 w-5" />
               </div>
               <div>
-                <h3 className="text-sm font-semibold text-white">Health Trend (24h)</h3>
-                <p className="text-xs text-ink-200">Hourly health score readings</p>
+                <h3 className="text-sm font-semibold text-white">Live Vitals (MQTT)</h3>
+                <p className="text-xs text-ink-200">Real-time telemetry stream</p>
               </div>
             </div>
-            <div className="h-[200px]">
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={healthTrend} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <defs>
-                    <linearGradient id="grad-health" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="#22C55E" stopOpacity={0.4} />
-                      <stop offset="100%" stopColor="#22C55E" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.04)" vertical={false} />
-                  <XAxis dataKey="hour" tick={{ fill: '#8A93A1', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <YAxis domain={[40, 100]} tick={{ fill: '#8A93A1', fontSize: 10 }} axisLine={false} tickLine={false} />
-                  <Tooltip contentStyle={tooltipStyle} />
-                  <Area type="monotone" dataKey="health" stroke="#22C55E" strokeWidth={2} fill="url(#grad-health)" />
-                </AreaChart>
-              </ResponsiveContainer>
-            </div>
+            
+            {eq.telemetry?.engine_status === 'ON' ? (
+              <div className="grid grid-cols-2 gap-4 md:grid-cols-4">
+                <div className="rounded-lg bg-ink-500/40 p-4">
+                  <div className="text-xs text-ink-200">Engine RPM</div>
+                  <div className="mt-1 text-xl font-semibold text-ok">{eq.telemetry.engine_rpm}</div>
+                </div>
+                <div className="rounded-lg bg-ink-500/40 p-4">
+                  <div className="text-xs text-ink-200">Fuel Level</div>
+                  <div className="mt-1 text-xl font-semibold text-cat-yellow">{eq.telemetry.fuel_level_percent?.toFixed(1)}%</div>
+                </div>
+                <div className="rounded-lg bg-ink-500/40 p-4">
+                  <div className="text-xs text-ink-200">Coolant Temp</div>
+                  <div className="mt-1 text-xl font-semibold text-white">{eq.telemetry.coolant_temperature}°C</div>
+                </div>
+                <div className="rounded-lg bg-ink-500/40 p-4">
+                  <div className="text-xs text-ink-200">Battery</div>
+                  <div className="mt-1 text-xl font-semibold text-white">{eq.telemetry.battery_voltage} V</div>
+                </div>
+              </div>
+            ) : (
+              <div className="flex h-32 items-center justify-center rounded-lg border border-dashed border-white/[0.05] bg-ink-500/20">
+                <div className="text-center">
+                  <div className="text-ink-200">Engine is currently Offline</div>
+                  <div className="text-xs text-ink-300">Live vitals will appear when engine is ON</div>
+                </div>
+              </div>
+            )}
           </motion.div>
 
           <div className="grid grid-cols-1 gap-4 md:grid-cols-2">

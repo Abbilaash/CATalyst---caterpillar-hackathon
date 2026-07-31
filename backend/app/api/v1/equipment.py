@@ -138,3 +138,52 @@ async def get_maintenance_logs(asset_id: str, db: AsyncSession = Depends(get_db)
         )
         for log in logs
     ]
+
+class HealthTrendResponse(BaseModel):
+    hour: str
+    health: float
+
+@router.get("/{asset_id}/health-trend", response_model=list[HealthTrendResponse])
+async def get_health_trend(asset_id: str, db: AsyncSession = Depends(get_db)):
+    twenty_four_hours_ago = datetime.utcnow() - timedelta(hours=24)
+    result = await db.execute(
+        select(Telemetry)
+        .where(Telemetry.asset_id == asset_id)
+        .where(Telemetry.timestamp >= twenty_four_hours_ago)
+        .order_by(Telemetry.timestamp.asc())
+    )
+    records = result.scalars().all()
+    
+    def get_bucket(dt):
+        return f"{(dt.hour // 2) * 2:02d}:00"
+
+    buckets = {f"{i:02d}:00": [] for i in range(0, 24, 2)}
+    
+    for r in records:
+        health = 100.0
+        if r.battery_voltage:
+            health = min(100.0, max(0.0, (r.battery_voltage / 14.0) * 100.0))
+        if r.engine_temperature and r.engine_temperature > 105:
+            health -= 10
+        if r.engine_rpm and r.engine_rpm > 1800:
+            health -= 5
+            
+        b = get_bucket(r.timestamp)
+        if b in buckets:
+            buckets[b].append(max(0.0, health))
+
+    now = datetime.utcnow()
+    current_bucket_hour = (now.hour // 2) * 2
+    
+    ordered_labels = []
+    for i in range(11, -1, -1):
+        h = (current_bucket_hour - (i * 2)) % 24
+        ordered_labels.append(f"{h:02d}:00")
+
+    response = []
+    for label in ordered_labels:
+        vals = buckets[label]
+        avg_health = sum(vals) / len(vals) if vals else 100.0
+        response.append(HealthTrendResponse(hour=label, health=round(avg_health, 2)))
+
+    return response
