@@ -55,6 +55,8 @@ export default function ManagerDashboard() {
   const [managerInfo, setManagerInfo] = useState(CURRENT_MANAGER);
   const [loading, setLoading] = useState(true);
 
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+
   const handleLogout = () => {
     setRole(null);
     setManagerId(null);
@@ -83,6 +85,12 @@ export default function ManagerDashboard() {
             });
           }
         }
+        // Fetch unread notifications count
+        const alertRes = await fetch(`${API_BASE_URL}/api/v1/alerts?role=manager&refresh=false`);
+        if (alertRes.ok) {
+          const alertData = await alertRes.json();
+          setUnreadAlerts(alertData.summary?.unread || 0);
+        }
       } catch (err) {
         console.warn('Failed to load dashboard from backend, using mock:', err);
       } finally {
@@ -100,8 +108,8 @@ export default function ManagerDashboard() {
             title={`Welcome, ${managerInfo.name.split(' ')[0]}`}
             subtitle={`${managerInfo.siteName} · Site Manager`}
             onSearch={() => router.push('/(manager)/assets')}
-            onBell={() => { }}
-            badge={stats.safetyAlerts}
+            onBell={() => router.push('/(manager)/notifications')}
+            badge={unreadAlerts}
             right={
               <Pressable
                 onPress={handleLogout}

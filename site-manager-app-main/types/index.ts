@@ -69,6 +69,12 @@ export interface Task {
   status: TaskStatus;
   progress: number;
   siteId: string;
+  siteName?: string;
+  fuel?: number;
+  engineHours?: number;
+  healthScore?: number;
+  rentalId?: string;
+  imageSeed?: string;
 }
 
 export interface ActivityItem {

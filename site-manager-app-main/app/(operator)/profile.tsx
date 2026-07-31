@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   Award, CheckCircle2, Clock, Shield, TrendingUp, LogOut, IdCard, Briefcase,
@@ -14,20 +14,49 @@ import { Chip } from '@/components/Chip';
 import { Avatar } from '@/components/Avatar';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
 import { ProgressBar } from '@/components/ProgressBar';
-import { CURRENT_OPERATOR } from '@/data/mock';
 import { shiftColor, shiftLabel, healthColor } from '@/theme/status';
 import { useSession } from '@/context/SessionContext';
+import { useApi } from '@/services/api';
 
 export default function OperatorProfile() {
   const router = useRouter();
-  const { setRole } = useSession();
+  const { setRole, setToken, setManagerId: setUserId, managerId: userId } = useSession();
+  const { fetchWithAuth } = useApi();
   const [logout, setLogout] = useState(false);
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (userId) {
+      fetchWithAuth(`/api/v1/operator/${userId}/profile`)
+        .then(data => setProfile(data))
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, [userId]);
 
   const handleLogout = () => {
     setLogout(false);
     setRole(null);
+    setToken(null);
+    setUserId(null);
     router.replace('/');
   };
+
+  if (loading) {
+    return (
+      <Screen>
+        <OperatorShell active="profile">
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={PALETTE.catYellow} />
+          </View>
+        </OperatorShell>
+      </Screen>
+    );
+  }
+
 
   return (
     <Screen>
@@ -38,12 +67,12 @@ export default function OperatorProfile() {
           {/* Profile header */}
           <Card style={styles.profileCard}>
             <View style={styles.profileTop}>
-              <Avatar name={CURRENT_OPERATOR.name} size={72} showRing />
+              <Avatar name={profile?.name ?? 'Operator'} size={72} showRing />
               <View style={{ flex: 1 }}>
-                <Text style={styles.name}>{CURRENT_OPERATOR.name}</Text>
+                <Text style={styles.name}>{profile?.name ?? '—'}</Text>
                 <Text style={styles.role}>Heavy Equipment Operator</Text>
                 <View style={{ marginTop: SPACING.sm }}>
-                  <Chip label={shiftLabel(CURRENT_OPERATOR.shiftStatus)} color={shiftColor(CURRENT_OPERATOR.shiftStatus)} soft={`${shiftColor(CURRENT_OPERATOR.shiftStatus)}22`} dot size="md" />
+                  <Chip label={shiftLabel(profile?.shiftStatus ?? 'off_duty')} color={shiftColor(profile?.shiftStatus ?? 'off_duty')} soft={`${shiftColor(profile?.shiftStatus ?? 'off_duty')}22`} dot size="md" />
                 </View>
               </View>
             </View>
@@ -53,11 +82,11 @@ export default function OperatorProfile() {
           <View style={styles.section}>
             <SectionLabel>Identity</SectionLabel>
             <Card style={styles.idCard}>
-              <IdRow Icon={IdCard} label="Employee ID" value={CURRENT_OPERATOR.employeeId} />
+              <IdRow Icon={IdCard} label="Employee ID" value={profile?.employeeId?.slice(-8).toUpperCase() ?? '—'} />
               <View style={styles.divider} />
-              <IdRow Icon={Briefcase} label="Experience" value={`${CURRENT_OPERATOR.experienceYears} years`} />
+              <IdRow Icon={Briefcase} label="Experience" value={`${profile?.experienceYears ?? 0} years`} />
               <View style={styles.divider} />
-              <IdRow Icon={Shield} label="Current Machine" value={CURRENT_OPERATOR.assignedMachine ?? '—'} />
+              <IdRow Icon={Shield} label="Current Machine" value={profile?.assignedMachine ?? '—'} />
             </Card>
           </View>
 
@@ -65,21 +94,21 @@ export default function OperatorProfile() {
           <View style={styles.section}>
             <SectionLabel>Performance</SectionLabel>
             <View style={styles.statGrid}>
-              <PerfStat Icon={CheckCircle2} label="Completed Tasks" value={`${CURRENT_OPERATOR.completedTasks}`} accent={PALETTE.success} />
-              <PerfStat Icon={Clock} label="Hours Worked" value={`${CURRENT_OPERATOR.hoursWorked}h`} accent={PALETTE.info} />
+              <PerfStat Icon={CheckCircle2} label="Completed Tasks" value={`${profile?.completedTasks ?? 0}`} accent={PALETTE.success} />
+              <PerfStat Icon={Clock} label="Hours Worked" value={`${profile?.hoursWorked ?? 0}h`} accent={PALETTE.info} />
             </View>
             <Card style={styles.safetyCard}>
               <View style={styles.safetyTop}>
                 <View style={styles.safetyIconBox}>
-                  <Shield size={20} color={healthColor(CURRENT_OPERATOR.safetyScore)} strokeWidth={2.2} />
+                  <Shield size={20} color={healthColor(profile?.safetyScore ?? 100)} strokeWidth={2.2} />
                 </View>
                 <View style={{ flex: 1 }}>
                   <Text style={styles.safetyLabel}>Safety Score</Text>
-                  <Text style={styles.safetyValue}>{CURRENT_OPERATOR.safetyScore} / 100</Text>
+                  <Text style={styles.safetyValue}>{profile?.safetyScore ?? 100} / 100</Text>
                 </View>
-                <Chip label="Excellent" color={healthColor(CURRENT_OPERATOR.safetyScore)} soft={`${healthColor(CURRENT_OPERATOR.safetyScore)}22`} dot />
+                <Chip label="Excellent" color={healthColor(profile?.safetyScore ?? 100)} soft={`${healthColor(profile?.safetyScore ?? 100)}22`} dot />
               </View>
-              <ProgressBar value={CURRENT_OPERATOR.safetyScore} color={healthColor(CURRENT_OPERATOR.safetyScore)} height={10} />
+              <ProgressBar value={profile?.safetyScore ?? 100} color={healthColor(profile?.safetyScore ?? 100)} height={10} />
             </Card>
           </View>
 
@@ -87,7 +116,7 @@ export default function OperatorProfile() {
           <View style={styles.section}>
             <SectionLabel>Achievements</SectionLabel>
             <View style={styles.achievementList}>
-              {CURRENT_OPERATOR.achievements.map((a) => (
+              {(profile?.achievements ?? ['Safety Champion']).map((a: string) => (
                 <Card key={a} style={styles.achievementCard}>
                   <View style={styles.achievementIcon}>
                     <Award size={18} color={PALETTE.catYellow} strokeWidth={2} />

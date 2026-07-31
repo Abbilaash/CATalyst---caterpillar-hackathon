@@ -11,6 +11,7 @@ import {
   Bot,
   Settings,
   Bell,
+  Camera,
 } from 'lucide-react';
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
@@ -25,6 +26,7 @@ const nav = [
   { to: '/decisions', label: 'Decision Center', icon: Brain },
   { to: '/forecast', label: 'Forecasting', icon: TrendingUp },
   { to: '/reports', label: 'Reports', icon: FileText },
+  { to: '/inspection', label: 'AI Inspection', icon: Camera },
   { to: '/alerts', label: 'Alert Center', icon: Bell },
 ];
 

@@ -22,13 +22,13 @@ export default function ManagerAnalytics() {
     async function load() {
       try {
         const resolvedManagerId = managerId || 'mgr-01';
-        const response = await fetch(`${API_BASE_URL}/api/v1/manager/dashboard/${resolvedManagerId}`);
+        const response = await fetch(`${API_BASE_URL}/api/v1/manager/analytics/${resolvedManagerId}`);
         if (response.ok) {
           const data = await response.json();
           setAnalyticsData(data);
         }
       } catch (err) {
-        console.warn('Failed to load dashboard data for analytics:', err);
+        console.warn('Failed to load telemetry analytics data:', err);
       } finally {
         setLoading(false);
       }
@@ -48,7 +48,6 @@ export default function ManagerAnalytics() {
     );
   }
 
-  // Calculate or mock metrics based on live stats
   const stats = analyticsData?.stats || {
     totalAssets: 8,
     activeRentals: 8,
@@ -60,7 +59,10 @@ export default function ManagerAnalytics() {
     safetyAlerts: 0,
   };
 
-  const utilizationRate = Math.round((stats.machinesWorking / (stats.totalAssets || 8)) * 100);
+  const utilizationRate = analyticsData?.utilizationRate ?? 0;
+  const complianceScore = analyticsData?.complianceScore ?? 98.4;
+  const idleFuelRate = analyticsData?.idleFuelRate ?? 14.2;
+  const uptimeRatios = analyticsData?.uptimeRatios || [];
 
   return (
     <Screen>
@@ -117,13 +119,15 @@ export default function ManagerAnalytics() {
           {/* Machine Productivity Bar Charts */}
           <Card style={styles.chartCard}>
             <Text style={styles.chartTitle}>Downtime vs Uptime</Text>
-            <Text style={styles.chartSub}>Weekly aggregate index</Text>
+            <Text style={styles.chartSub}>Weekly aggregate index (Uptime %)</Text>
             
             <View style={styles.chartContent}>
-              <BarRow label="Excavators" value={92} color={PALETTE.success} />
-              <BarRow label="D6 Dozers" value={78} color={PALETTE.catYellow} />
-              <BarRow label="Wheel Loaders" value={85} color={PALETTE.success} />
-              <BarRow label="Graders" value={60} color={PALETTE.warning} />
+              {uptimeRatios.map((item: any, idx: number) => {
+                const color = item.value >= 80 ? PALETTE.success : (item.value >= 60 ? PALETTE.catYellow : PALETTE.warning);
+                return (
+                  <BarRow key={idx} label={item.label} value={item.value} color={color} />
+                );
+              })}
             </View>
           </Card>
 
@@ -133,13 +137,13 @@ export default function ManagerAnalytics() {
             <View style={styles.complianceRow}>
               <Percent size={18} color={PALETTE.success} />
               <Text style={styles.complianceText}>Compliance Score</Text>
-              <Text style={styles.complianceVal}>98.4%</Text>
+              <Text style={styles.complianceVal}>{complianceScore}%</Text>
             </View>
             <View style={styles.divider} />
             <View style={styles.complianceRow}>
               <Hammer size={18} color={PALETTE.catYellow} />
               <Text style={styles.complianceText}>Idle Fuel Consumption</Text>
-              <Text style={styles.complianceVal}>14.2 L/h</Text>
+              <Text style={styles.complianceVal}>{idleFuelRate} L/h</Text>
             </View>
           </Card>
         </ScrollView>

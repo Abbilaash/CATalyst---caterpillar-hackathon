@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
-import { Boxes, ChevronDown, Cpu, MapPin, User, Heart, Gauge, Timer, Eye, X } from 'lucide-react-native';
+import { Boxes, ChevronDown, Cpu, MapPin, User, Heart, Gauge, Timer, Eye, X, Battery, Thermometer, Droplet, Compass } from 'lucide-react-native';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { ManagerShell } from '@/components/ManagerShell';
@@ -202,6 +202,36 @@ function Metric({ Icon, label, value, color }: { Icon: any; label: string; value
 function QuickViewSheet({ asset, onClose }: { asset: Asset; onClose: () => void }) {
   const site = siteById(asset.siteId);
   const opName = (asset as any).assignedOperatorName || (asset.assignedOperatorId ? 'Operator' : undefined);
+  const [telemetry, setTelemetry] = useState<any>(null);
+
+  useEffect(() => {
+    let active = true;
+    const fetchTelemetry = async () => {
+      try {
+        const res = await fetch(`${API_BASE_URL}/api/v1/equipment/${asset.id}/telemetry`);
+        if (res.ok && active) {
+          const data = await res.json();
+          if (data) {
+            setTelemetry(data);
+          }
+        }
+      } catch (e) {
+        console.warn('Failed to load asset telematics:', e);
+      }
+    };
+    fetchTelemetry();
+    const interval = setInterval(fetchTelemetry, 2000);
+    return () => {
+      active = false;
+      clearInterval(interval);
+    };
+  }, [asset.id]);
+
+  // Use live database engine hours and idle hours from telemetry if available
+  const displayEngineHours = telemetry ? `${Math.round(telemetry.engine_hours)}h` : `${asset.engineHours}h`;
+  const displayIdleHours = telemetry ? `${Math.round(telemetry.idle_hours)}h` : `${asset.idleHours}h`;
+  const displayHealth = telemetry ? `${Math.round((telemetry.battery_voltage / 14.0) * 100)}%` : `${asset.healthScore}%`;
+
   return (
     <View style={styles.sheetBackdrop}>
       <Pressable style={styles.sheetBackdropPress} onPress={onClose} />
@@ -211,7 +241,7 @@ function QuickViewSheet({ asset, onClose }: { asset: Asset; onClose: () => void 
           <EquipmentImage seed={asset.imageSeed} size={64} rounded={12} />
           <View style={{ flex: 1, gap: 4 }}>
             <Text style={styles.sheetName}>{asset.name}</Text>
-            <Text style={styles.sheetMeta}>{asset.machineId} · {asset.rentalId}</Text>
+            <Text style={styles.sheetMeta}>{asset.machineId} · {asset.rentalId || 'Unrented'}</Text>
             <View style={styles.sheetChips}>
               <Chip label={statusLabel(asset.status)} color={statusColor(asset.status)} soft={`${statusColor(asset.status)}22`} dot />
               <Chip label={rentalLabel(asset.rentalStatus)} color={rentalColor(asset.rentalStatus)} soft={`${rentalColor(asset.rentalStatus)}22`} dot />
@@ -221,11 +251,33 @@ function QuickViewSheet({ asset, onClose }: { asset: Asset; onClose: () => void 
             <X size={18} color={PALETTE.textSecondary} strokeWidth={2.2} />
           </Pressable>
         </View>
+
         <View style={styles.sheetMetrics}>
-          <Metric Icon={Heart} label="Health" value={`${asset.healthScore}%`} color={healthColor(asset.healthScore)} />
-          <Metric Icon={Timer} label="Idle" value={`${asset.idleHours}h`} color={PALETTE.warning} />
-          <Metric Icon={Gauge} label="Engine" value={`${asset.engineHours}h`} color={PALETTE.info} />
+          <Metric Icon={Heart} label="Health" value={displayHealth} color={healthColor(telemetry ? Math.round((telemetry.battery_voltage / 14.0) * 100) : asset.healthScore)} />
+          <Metric Icon={Timer} label="Idle Hours" value={displayIdleHours} color={PALETTE.warning} />
+          <Metric Icon={Gauge} label="Engine Hours" value={displayEngineHours} color={PALETTE.info} />
         </View>
+
+        {/* Telematics Info Panel */}
+        <View style={styles.telematicsContainer}>
+          <Text style={styles.telematicsTitle}>Live Telematics (TimescaleDB)</Text>
+          
+          <View style={styles.telematicsGrid}>
+            <View style={styles.telematicsRow}>
+              <TelematicsItem Icon={Thermometer} label="Engine Temp" value={telemetry ? `${Math.round(telemetry.engine_temperature)}°C` : '—'} color={PALETTE.warning} />
+              <TelematicsItem Icon={Droplet} label="Oil Pressure" value={telemetry ? `${Math.round(telemetry.oil_pressure)} psi` : '—'} color={PALETTE.info} />
+            </View>
+            <View style={styles.telematicsRow}>
+              <TelematicsItem Icon={Gauge} label="Engine RPM" value={telemetry ? `${Math.round(telemetry.rpm)} RPM` : '—'} color={PALETTE.catYellow} />
+              <TelematicsItem Icon={Battery} label="Battery Volts" value={telemetry ? `${telemetry.battery_voltage.toFixed(1)}V` : '—'} color={PALETTE.success} />
+            </View>
+            <View style={styles.telematicsRow}>
+              <TelematicsItem Icon={Compass} label="Location" value={telemetry ? `${telemetry.latitude.toFixed(4)}, ${telemetry.longitude.toFixed(4)}` : '—'} color={PALETTE.textPrimary} />
+              <TelematicsItem Icon={Timer} label="Speed" value={telemetry ? `${Math.round(telemetry.speed)} km/h` : '—'} color={PALETTE.info} />
+            </View>
+          </View>
+        </View>
+
         <View style={styles.sheetInfo}>
           <InfoPill Icon={MapPin} label="Current Site" value={site?.name ?? '—'} />
           <View style={{ height: SPACING.md }} />
@@ -233,6 +285,20 @@ function QuickViewSheet({ asset, onClose }: { asset: Asset; onClose: () => void 
           <View style={{ height: SPACING.md }} />
           <InfoPill Icon={Cpu} label="Asset Type" value={asset.assetType} />
         </View>
+      </View>
+    </View>
+  );
+}
+
+function TelematicsItem({ Icon, label, value, color }: { Icon: any; label: string; value: string; color: string }) {
+  return (
+    <View style={styles.telematicsItem}>
+      <View style={[styles.telematicsIconBox, { backgroundColor: color + '15' }]}>
+        <Icon size={16} color={color} strokeWidth={2} />
+      </View>
+      <View>
+        <Text style={styles.telematicsLabel}>{label}</Text>
+        <Text style={styles.telematicsValue} numberOfLines={1}>{value}</Text>
       </View>
     </View>
   );
@@ -285,4 +351,12 @@ const styles = StyleSheet.create({
   sheetClose: { width: 36, height: 36, borderRadius: 999, backgroundColor: PALETTE.surfaceOverlay, alignItems: 'center', justifyContent: 'center' },
   sheetMetrics: { flexDirection: 'row', gap: SPACING.md },
   sheetInfo: { gap: 0 },
+  telematicsContainer: { backgroundColor: PALETTE.surfaceOverlay, borderRadius: RADIUS.lg, padding: SPACING.lg, gap: SPACING.md },
+  telematicsTitle: { fontFamily: FONT.bold, fontSize: 14, color: PALETTE.catYellow },
+  telematicsGrid: { gap: SPACING.sm },
+  telematicsRow: { flexDirection: 'row', gap: SPACING.md },
+  telematicsItem: { flex: 1, flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
+  telematicsIconBox: { width: 32, height: 32, borderRadius: RADIUS.sm, alignItems: 'center', justifyContent: 'center' },
+  telematicsLabel: { fontFamily: FONT.regular, fontSize: 10, color: PALETTE.textTertiary },
+  telematicsValue: { fontFamily: FONT.semibold, fontSize: 13, color: PALETTE.textPrimary, marginTop: 1 },
 });

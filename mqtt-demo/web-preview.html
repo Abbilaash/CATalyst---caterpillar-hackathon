@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Caterpillar Mobile App Telemetry Simulator</title>
+  <script src="https://unpkg.com/react@18/umd/react.development.js" crossorigin></script>
+  <script src="https://unpkg.com/react-dom@18/umd/react-dom.development.js" crossorigin></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background-color: #0a0a0a;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      display: flex;
+      justify-content: center;
+      align-items: center;
+      min-height: 100vh;
+      color: #ffffff;
+      padding: 20px;
+    }
+    .phone-container {
+      width: 100%;
+      max-width: 440px;
+      height: 880px;
+      background: #121212;
+      border-radius: 36px;
+      box-shadow: 0 25px 60px rgba(0,0,0,0.9), 0 0 0 10px #222222;
+      overflow-y: auto;
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    .phone-container::-webkit-scrollbar { width: 4px; }
+    .phone-container::-webkit-scrollbar-thumb { background: #333; border-radius: 4px; }
+    .content { padding: 20px; }
+    
+    .header-banner { background: #1E1E1E; padding: 18px; border-radius: 12px; border-left: 6px solid #FFCD00; margin-bottom: 20px; }
+    .brand-title { font-size: 24px; font-weight: 900; color: #FFCD00; letter-spacing: 2px; }
+    .header-subtitle { font-size: 13px; color: #AAAAAA; margin-top: 4px; }
+    
+    .section-header { font-size: 15px; font-weight: 700; color: #FFFFFF; margin: 18px 0 12px 0; }
+    
+    .machine-card { background: #1E1E1E; padding: 16px; border-radius: 10px; border: 1px solid #333333; margin-bottom: 12px; cursor: pointer; }
+    .machine-card.selected { border-color: #FFCD00; background: #262419; }
+    .card-header-row { display: flex; justify-content: space-between; align-items: center; }
+    .machine-name { font-size: 15px; font-weight: 700; color: #FFFFFF; }
+    .asset-badge { font-size: 11px; font-weight: 700; color: #FFCD00; background: #332B00; padding: 4px 8px; border-radius: 6px; }
+    .machine-model { font-size: 12px; color: #888888; margin-top: 4px; }
+    .card-detail-row { display: flex; justify-content: space-between; margin-top: 12px; font-size: 12px; color: #CCCCCC; }
+    .selected-indicator { font-size: 12px; font-weight: 700; color: #FFCD00; margin-top: 10px; }
+
+    .status-box { background: #1A1A1A; padding: 14px; border-radius: 8px; margin: 16px 0; border: 1px solid #2C2C2C; }
+    .status-label { font-size: 11px; color: #888888; }
+    .status-value { font-size: 13px; font-weight: 600; color: #FFFFFF; margin-top: 2px; }
+
+    .btn-primary { width: 100%; background: #FFCD00; color: #111111; padding: 14px; border: none; border-radius: 10px; font-size: 15px; font-weight: 800; cursor: pointer; }
+    .btn-primary:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .shift-header { display: flex; justify-content: space-between; align-items: center; background: #1E1E1E; padding: 16px; border-radius: 12px; margin-bottom: 16px; }
+    .badge-status { padding: 6px 12px; border-radius: 20px; font-size: 11px; font-weight: 800; }
+    .badge-on { background: #1B432C; color: #4ECA82; }
+    .badge-off { background: #4A1D1D; color: #FF6B6B; }
+
+    .engine-controls { display: flex; gap: 12px; margin-bottom: 16px; }
+    .btn-engine { flex: 1; padding: 14px; border: none; border-radius: 10px; font-weight: 800; font-size: 13px; cursor: pointer; color: white; }
+    .btn-start { background: #28A745; }
+    .btn-stop { background: #DC3545; }
+    .btn-engine:disabled { opacity: 0.35; cursor: not-allowed; }
+
+    .metrics-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    .metric-card { background: #1E1E1E; padding: 12px; border-radius: 10px; border: 1px solid #2A2A2A; }
+    .metric-label { font-size: 11px; color: #888888; margin-bottom: 4px; }
+    .metric-value { font-size: 17px; font-weight: 700; color: #FFFFFF; }
+    .metric-unit { font-size: 11px; font-weight: 400; color: #888888; }
+    .metric-highlight { color: #FFCD00; font-family: monospace; font-size: 17px; }
+
+    .gps-card { background: #1E1E1E; padding: 14px; border-radius: 10px; border: 1px solid #2A2A2A; margin: 12px 0 4px 0; }
+    .gps-value { font-size: 14px; font-weight: 700; color: #FFCD00; font-family: monospace; margin-top: 4px; }
+
+    .fuel-card { background: #1E1E1E; padding: 16px; border-radius: 12px; border: 1px solid #2A2A2A; margin: 16px 0; }
+    .fuel-row { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+    .fuel-bar-track { height: 10px; background: #333333; border-radius: 5px; overflow: hidden; margin-bottom: 14px; }
+    .fuel-bar-fill { height: 100%; background: #FFCD00; border-radius: 5px; transition: width 0.3s ease; }
+
+    .fuel-input-box { display: flex; gap: 10px; margin-top: 10px; }
+    .input-fuel { flex: 1; background: #2A2A2A; color: #FFFFFF; border: 1px solid #444; border-radius: 8px; padding: 10px 12px; font-size: 14px; font-weight: 600; outline: none; }
+    .input-fuel:focus { border-color: #FFCD00; }
+    .btn-add-fuel { background: #FFCD00; color: #111; border: none; padding: 10px 18px; border-radius: 8px; font-size: 13px; font-weight: 800; cursor: pointer; }
+
+    .error-msg { font-size: 12px; color: #FF5555; margin-top: 6px; }
+
+    .btn-end-shift { width: 100%; background: #2A2A2A; color: #FF5555; border: none; padding: 14px; border-radius: 10px; font-size: 13px; font-weight: 700; cursor: pointer; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <div class="phone-container">
+    <div id="root"></div>
+  </div>
+
+  <script type="text/babel">
+    const { useState, useEffect, useRef } = React;
+
+    const AVAILABLE_MACHINES = [
+      { id: 'CAT-EXC-349', name: 'CAT 349 Hydraulic Excavator', model: '349 UHD', fuelCapacity: 350, initialEngineHours: 1245.80, startLat: 40.712800, startLon: -74.006000 },
+      { id: 'CAT-DOZ-D11', name: 'CAT D11 Mining Dozer', model: 'D11 Heavy Tractor', fuelCapacity: 500, initialEngineHours: 3820.50, startLat: 40.713500, startLon: -74.008200 },
+      { id: 'CAT-TRK-797F', name: 'CAT 797F Mining Truck', model: '797F Off-Highway', fuelCapacity: 700, initialEngineHours: 5100.25, startLat: 40.711200, startLon: -74.004100 }
+    ];
+
+    const formatOperatingTime = (totalSeconds) => {
+      const hrs = Math.floor(totalSeconds / 3600);
+      const mins = Math.floor((totalSeconds % 3600) / 60);
+      const secs = Math.floor(totalSeconds % 60);
+      return `${hrs.toString().padStart(2, '0')}:${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+    };
+
+    const pushToDatabase = (payload) => {
+      try {
+        fetch('http://localhost:8085/refuel', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        }).catch(() => {});
+      } catch (e) {}
+    };
+
+    const controlPublisher = (asset_id, command, amount = 0) => {
+      try {
+        fetch('http://localhost:8086', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ asset_id, command, amount })
+        }).catch(() => {});
+      } catch (e) {}
+    };
+
+    function App() {
+      const [assignedMachine, setAssignedMachine] = useState(null);
+      const [shiftStarted, setShiftStarted] = useState(false);
+      const [fuelInput, setFuelInput] = useState('');
+      const [fuelError, setFuelError] = useState('');
+      const [operatingSeconds, setOperatingSeconds] = useState(0);
+
+      const [telemetry, setTelemetry] = useState({
+        asset_id: '',
+        timestamp: new Date().toISOString(),
+        latitude: 40.712800,
+        longitude: -74.006000,
+        altitude: 320.0,
+        heading: 180.0,
+        speed_kmph: 0.0,
+        engine_status: 'OFF',
+        ignition_status: 'OFF',
+        engine_rpm: 0,
+        engine_hours: 0,
+        idle_hours: 120.5,
+        fuel_level_percent: 80.0,
+        fuel_remaining_liters: 280.0,
+        fuel_consumption_lph: 0.0,
+        engine_temperature: 35.0,
+        coolant_temperature: 33.0,
+        hydraulic_oil_temperature: 30.0,
+        hydraulic_pressure: 25.0,
+        payload_tons: 0.0,
+        bucket_position_percent: 0.0,
+        boom_height: 0.0,
+        battery_voltage: 24.0,
+        operating_mode: 'Parked'
+      });
+
+      const telemetryRef = useRef(telemetry);
+      const fuelCapacityRef = useRef(350);
+
+      // Poll Database for Live Stored Telemetry (Includes dynamic GPS Latitude & Longitude)
+      useEffect(() => {
+        let intervalId;
+        if (shiftStarted && telemetry.engine_status === 'ON') {
+          intervalId = setInterval(() => {
+            fetch('http://localhost:8085/')
+              .then(res => res.json())
+              .then(data => {
+                if (data && data.asset_id === telemetryRef.current.asset_id) {
+                  setTelemetry(prev => ({
+                    ...prev,
+                    latitude: data.latitude ?? prev.latitude,
+                    longitude: data.longitude ?? prev.longitude,
+                    speed_kmph: data.speed_kmph ?? prev.speed_kmph,
+                    engine_rpm: data.engine_rpm ?? prev.engine_rpm,
+                    fuel_remaining_liters: data.fuel_remaining_liters ?? prev.fuel_remaining_liters,
+                    fuel_level_percent: data.fuel_level_percent ?? prev.fuel_level_percent,
+                    engine_temperature: data.engine_temperature ?? prev.engine_temperature,
+                    hydraulic_pressure: data.hydraulic_pressure ?? prev.hydraulic_pressure,
+                    operating_mode: data.operating_mode ?? prev.operating_mode,
+                    engine_hours: data.engine_hours ?? prev.engine_hours
+                  }));
+                }
+              })
+              .catch(() => {});
+          }, 2000);
+        }
+        return () => clearInterval(intervalId);
+      }, [shiftStarted, telemetry.engine_status]);
+
+      // Operating Time Counter (Increments every second while Engine is ON)
+      useEffect(() => {
+        let timer;
+        if (shiftStarted && telemetry.engine_status === 'ON') {
+          timer = setInterval(() => {
+            setOperatingSeconds((prev) => prev + 1);
+          }, 1000);
+        }
+        return () => clearInterval(timer);
+      }, [shiftStarted, telemetry.engine_status]);
+
+      // Control 1: Assign Machine
+      const handleSelectMachine = (machine) => {
+        setAssignedMachine(machine);
+        fuelCapacityRef.current = machine.fuelCapacity;
+
+        const updated = {
+          ...telemetryRef.current,
+          asset_id: machine.id,
+          engine_hours: machine.initialEngineHours,
+          latitude: machine.startLat,
+          longitude: machine.startLon,
+          fuel_remaining_liters: Math.min(telemetryRef.current.fuel_remaining_liters, machine.fuelCapacity),
+          fuel_level_percent: Math.round((Math.min(telemetryRef.current.fuel_remaining_liters, machine.fuelCapacity) / machine.fuelCapacity) * 100),
+          timestamp: new Date().toISOString()
+        };
+
+        telemetryRef.current = updated;
+        setTelemetry(updated);
+        pushToDatabase(updated);
+      };
+
+      // Control 2: Start Shift
+      const handleStartShift = () => {
+        if (!assignedMachine) return;
+        setShiftStarted(true);
+      };
+
+      // Control 3: Start Engine
+      const handleStartEngine = () => {
+        if (!assignedMachine) return;
+        const updated = {
+          ...telemetryRef.current,
+          engine_status: 'ON',
+          ignition_status: 'ON',
+          operating_mode: 'Idle',
+          engine_rpm: 700,
+          timestamp: new Date().toISOString()
+        };
+        telemetryRef.current = updated;
+        setTelemetry(updated);
+        pushToDatabase(updated);
+
+        controlPublisher(assignedMachine.id, 'START_ENGINE');
+      };
+
+      // Control 4: Stop Engine
+      const handleStopEngine = () => {
+        if (!assignedMachine) return;
+        const updated = {
+          ...telemetryRef.current,
+          engine_status: 'OFF',
+          ignition_status: 'OFF',
+          operating_mode: 'Parked',
+          engine_rpm: 0,
+          speed_kmph: 0.0,
+          fuel_consumption_lph: 0.0,
+          timestamp: new Date().toISOString()
+        };
+        telemetryRef.current = updated;
+        setTelemetry(updated);
+        pushToDatabase(updated);
+
+        controlPublisher(assignedMachine.id, 'STOP_ENGINE');
+      };
+
+      // Control 5: End Shift
+      const handleEndShift = () => {
+        handleStopEngine();
+        setShiftStarted(false);
+      };
+
+      // Fuel Management: Numeric Input Box Validation & Submit
+      const handleAddFuelSubmit = (e) => {
+        e.preventDefault();
+        setFuelError('');
+
+        const liters = parseFloat(fuelInput);
+        if (isNaN(liters) || liters <= 0) {
+          setFuelError('Please enter a valid positive number of liters.');
+          return;
+        }
+
+        const maxCap = assignedMachine ? assignedMachine.fuelCapacity : fuelCapacityRef.current;
+        const currentFuel = telemetryRef.current.fuel_remaining_liters;
+        
+        if (currentFuel + liters > maxCap) {
+          setFuelError(`Cannot exceed max fuel capacity of ${maxCap} L. Max addable: ${(maxCap - currentFuel).toFixed(1)} L.`);
+          return;
+        }
+
+        const newFuel = Math.min(maxCap, Math.round((currentFuel + liters) * 100) / 100);
+        const newPct = Math.round((newFuel / maxCap) * 10000) / 100;
+        const refuelDelta = Math.round((newFuel - currentFuel) * 100) / 100;
+
+        const updated = {
+          ...telemetryRef.current,
+          fuel_remaining_liters: newFuel,
+          fuel_level_percent: newPct,
+          timestamp: new Date().toISOString()
+        };
+
+        // 1. Immediately update UI
+        setTelemetry(updated);
+        telemetryRef.current = updated;
+        setFuelInput('');
+
+        // 2. Save updated values to database
+        pushToDatabase(updated);
+
+        // 3. Publish FUEL_ADDED event over MQTT
+        if (assignedMachine) {
+          controlPublisher(assignedMachine.id, 'ADD_FUEL', refuelDelta);
+        }
+      };
+
+      if (!shiftStarted) {
+        return (
+          <div class="content">
+            <div class="header-banner">
+              <div class="brand-title">CATERPILLAR</div>
+              <div class="header-subtitle">Operator Shift Initialization</div>
+            </div>
+
+            <div class="section-header">Select Machine for Shift</div>
+
+            {AVAILABLE_MACHINES.map((machine) => {
+              const isSelected = assignedMachine?.id === machine.id;
+              return (
+                <div key={machine.id} class={`machine-card ${isSelected ? 'selected' : ''}`} onClick={() => handleSelectMachine(machine)}>
+                  <div class="card-header-row">
+                    <div class="machine-name">{machine.name}</div>
+                    <div class="asset-badge">{machine.id}</div>
+                  </div>
+                  <div class="machine-model">{machine.model}</div>
+                  <div class="card-detail-row">
+                    <span>Tank Capacity: {machine.fuelCapacity} L</span>
+                    <span>Hours: {machine.initialEngineHours} hrs</span>
+                  </div>
+                  {isSelected && <div class="selected-indicator">✓ Machine Selected</div>}
+                </div>
+              );
+            })}
+
+            <div class="status-box">
+              <div class="status-label">Selection Status:</div>
+              <div class="status-value">
+                {assignedMachine ? `Selected: ${assignedMachine.name} (${assignedMachine.id})` : 'No Machine Selected'}
+              </div>
+            </div>
+
+            <button class="btn-primary" disabled={!assignedMachine} onClick={handleStartShift}>
+              START SHIFT
+            </button>
+          </div>
+        );
+      }
+
+      const isEngineOn = telemetry.engine_status === 'ON';
+      const maxCap = assignedMachine ? assignedMachine.fuelCapacity : 350;
+
+      return (
+        <div class="content">
+          <div class="shift-header">
+            <div>
+              <div style={{ fontSize: '15px', fontWeight: '800', color: '#FFF' }}>{assignedMachine?.name}</div>
+              <div style={{ fontSize: '12px', color: '#888', marginTop: '2px' }}>Asset ID: {telemetry.asset_id}</div>
+            </div>
+            <div class={`badge-status ${isEngineOn ? 'badge-on' : 'badge-off'}`}>
+              ENGINE {telemetry.engine_status}
+            </div>
+          </div>
+
+          {/* Controls: Start Engine / Stop Engine */}
+          <div class="engine-controls">
+            <button class="btn-engine btn-start" disabled={isEngineOn} onClick={handleStartEngine}>
+              ▶ START ENGINE
+            </button>
+            <button class="btn-engine btn-stop" disabled={!isEngineOn} onClick={handleStopEngine}>
+              ⏹ STOP ENGINE
+            </button>
+          </div>
+
+          <div class="section-header">Live Telemetry (Database Source of Truth)</div>
+          <div class="metrics-grid">
+            <div class="metric-card">
+              <div class="metric-label">Operating Time (Runtime)</div>
+              <div class="metric-value metric-highlight">{formatOperatingTime(operatingSeconds)}</div>
+            </div>
+            <div class="metric-card"><div class="metric-label">Operating Mode</div><div class="metric-value">{telemetry.operating_mode}</div></div>
+            <div class="metric-card"><div class="metric-label">Engine Speed</div><div class="metric-value">{telemetry.engine_rpm} <span class="metric-unit">RPM</span></div></div>
+            <div class="metric-card"><div class="metric-label">Ground Speed</div><div class="metric-value">{telemetry.speed_kmph} <span class="metric-unit">km/h</span></div></div>
+            <div class="metric-card"><div class="metric-label">Engine Temp</div><div class="metric-value">{telemetry.engine_temperature} <span class="metric-unit">°C</span></div></div>
+            <div class="metric-card"><div class="metric-label">Hydraulic Pressure</div><div class="metric-value">{telemetry.hydraulic_pressure} <span class="metric-unit">bar</span></div></div>
+            <div class="metric-card"><div class="metric-label">Engine Hours</div><div class="metric-value">{telemetry.engine_hours.toFixed(2)} <span class="metric-unit">hrs</span></div></div>
+          </div>
+
+          {/* Dynamic Changing GPS Location (Latitude & Longitude) Card */}
+          <div class="gps-card">
+            <div class="metric-label">Live GPS Location (Latitude & Longitude)</div>
+            <div class="gps-value">
+              Lat: {Number(telemetry.latitude).toFixed(6)} | Lon: {Number(telemetry.longitude).toFixed(6)}
+            </div>
+          </div>
+
+          {/* Fuel Management: Numeric Liters Input Box */}
+          <div class="fuel-card">
+            <div class="fuel-row">
+              <span style={{ fontSize: '14px', fontWeight: '700' }}>Fuel Remaining</span>
+              <span style={{ fontSize: '16px', fontWeight: '800', color: '#FFCD00' }}>
+                {telemetry.fuel_remaining_liters} L ({telemetry.fuel_level_percent}%) <span style={{ fontSize: '11px', color: '#888' }}>/ {maxCap} L</span>
+              </span>
+            </div>
+            <div class="fuel-bar-track">
+              <div class="fuel-bar-fill" style={{ width: `${Math.min(100, telemetry.fuel_level_percent)}%` }}></div>
+            </div>
+            
+            <form onSubmit={handleAddFuelSubmit}>
+              <div style={{ fontSize: '12px', color: '#CCC', marginBottom: '6px' }}>Add Fuel (Liters):</div>
+              <div class="fuel-input-box">
+                <input
+                  type="number"
+                  step="0.1"
+                  min="0.1"
+                  max={maxCap}
+                  placeholder="e.g. 35"
+                  value={fuelInput}
+                  onChange={(e) => setFuelInput(e.target.value)}
+                  class="input-fuel"
+                />
+                <button type="submit" class="btn-add-fuel">
+                  Add Fuel
+                </button>
+              </div>
+              {fuelError ? <div class="error-msg">{fuelError}</div> : null}
+            </form>
+          </div>
+
+          {/* Control: End Shift */}
+          <button class="btn-end-shift" onClick={handleEndShift}>
+            END SHIFT
+          </button>
+        </div>
+      );
+    }
+
+    const root = ReactDOM.createRoot(document.getElementById('root'));
+    root.render(<App />);
+  </script>
+</body>
+</html>

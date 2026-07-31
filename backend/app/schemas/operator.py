@@ -21,6 +21,12 @@ class OperatorTaskResponse(BaseModel):
     machineName: str
     status: str
     dueTime: str
+    siteName: Optional[str] = None
+    fuel: Optional[float] = None
+    engineHours: Optional[float] = None
+    healthScore: Optional[int] = 100
+    rentalId: Optional[str] = None
+    imageSeed: Optional[str] = None
 
 class AssetScanResponse(BaseModel):
     name: str

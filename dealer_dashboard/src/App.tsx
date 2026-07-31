@@ -12,6 +12,7 @@ import { ReportsPage } from '@/pages/ReportsPage';
 import { CopilotPage } from '@/pages/CopilotPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { AlertsPage } from '@/pages/AlertsPage';
+import { InspectionPage } from '@/pages/InspectionPage';
 
 function App() {
   return (
@@ -28,6 +29,7 @@ function App() {
           <Route path="/forecast" element={<ForecastPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/alerts" element={<AlertsPage />} />
+          <Route path="/inspection" element={<InspectionPage />} />
           <Route path="/copilot" element={<CopilotPage />} />
           <Route path="/settings" element={<SettingsPage />} />
         </Route>

@@ -13,31 +13,55 @@ import { Chip } from '@/components/Chip';
 import { Button } from '@/components/Button';
 import { EquipmentImage } from '@/components/EquipmentImage';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import { CURRENT_ASSET, CURRENT_SITE, CURRENT_OPERATOR } from '@/data/mock';
 import { statusColor, statusLabel, checklistColor, checklistLabel } from '@/theme/status';
 import type { Asset } from '@/types';
+import { useApi } from '@/services/api';
+import { useSession } from '@/context/SessionContext';
 
 type ScanState = 'idle' | 'scanning' | 'result' | 'problem';
 
 export default function OperatorScan() {
   const router = useRouter();
+  const { fetchWithAuth } = useApi();
   const [state, setState] = useState<ScanState>('idle');
   const [confirm, setConfirm] = useState<null | 'assign' | 'cancel' | 'report'>(null);
   const [checklist, setChecklist] = useState<'pending' | 'passed'>('pending');
+  const [scannedAsset, setScannedAsset] = useState<any>(null);
 
-  const scannedAsset = CURRENT_ASSET!;
-
-  const handleScan = () => {
+  const handleScan = async () => {
     setState('scanning');
-    setTimeout(() => {
+    try {
+      // In a real app we'd get this from the camera. Mocking the QR code of the seeded asset.
+      const data = await fetchWithAuth(`/api/v1/operator/scan/QR-320-001`);
+      setScannedAsset(data);
       setState('result');
       setChecklist('passed');
-    }, 1800);
+    } catch (e) {
+      console.error(e);
+      alert("Invalid QR Code or Asset Not Found");
+      setState('idle');
+    }
   };
 
   const handleConfirm = () => {
     setConfirm(null);
     router.push('/(operator)/home');
+  };
+
+  const submitReport = async () => {
+    try {
+      await fetchWithAuth(`/api/v1/operator/report-issue`, {
+        method: 'POST',
+        body: JSON.stringify({ asset_id: scannedAsset?.machineId, problem_details: "Reported via mobile scanner" })
+      });
+      alert("Issue reported to supervisor.");
+    } catch (e) {
+      console.error(e);
+      alert("Failed to report issue");
+    } finally {
+      setConfirm(null);
+      setState('idle');
+    }
   };
 
   return (
@@ -63,7 +87,7 @@ export default function OperatorScan() {
       <ConfirmDialog
         visible={confirm === 'assign'}
         title="Confirm Assignment"
-        message={`You are about to confirm assignment for ${scannedAsset.name} (${scannedAsset.machineId}). This will start your operating session.`}
+        message={`You are about to confirm assignment for ${scannedAsset?.name ?? 'this equipment'} (${scannedAsset?.machineId ?? '—'}). This will start your operating session.`}
         confirmLabel="Confirm"
         onConfirm={handleConfirm}
         onCancel={() => setConfirm(null)}
@@ -74,7 +98,7 @@ export default function OperatorScan() {
         message="A problem report will be filed for this equipment. A supervisor will be notified immediately."
         confirmLabel="Report"
         danger
-        onConfirm={() => { setConfirm(null); setState('idle'); }}
+        onConfirm={submitReport}
         onCancel={() => setConfirm(null)}
       />
       <ConfirmDialog
@@ -216,8 +240,7 @@ function ResultView({
         <View style={styles.resultGrid}>
           <ResultField icon={Cpu} label="Machine ID" value={asset.machineId} />
           <ResultField icon={QrCode} label="Rental ID" value={asset.rentalId ?? '—'} />
-          <ResultField icon={MapPin} label="Current Site" value={CURRENT_SITE?.name ?? '—'} />
-          <ResultField icon={User} label="Assigned Operator" value={CURRENT_OPERATOR.name} />
+          <ResultField icon={MapPin} label="Current Site" value={asset.siteId ?? '—'} />
         </View>
 
         <View style={styles.checklistRow}>

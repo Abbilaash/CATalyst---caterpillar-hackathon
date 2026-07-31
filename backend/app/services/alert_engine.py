@@ -98,12 +98,6 @@ async def run_alert_engine(
         for asset, idle_hrs in idle_res.all():
             if await _dedup_check("idle_asset", asset.asset_id):
                 continue
-            site_name = "Dealer Yard"
-            if asset.current_site_id:
-                s = await db.execute(select(Site).where(Site.site_id == asset.current_site_id))
-                site_obj = s.scalar_one_or_none()
-                if site_obj:
-                    site_name = site_obj.site_name
 
             alert = await _save_and_push({
                 "user_id": "dealer",
@@ -114,7 +108,7 @@ async def run_alert_engine(
                 "severity": "high",
                 "target_role": "dealer",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": f"/equipment/{asset.asset_id}",
             })
             alerts.append(alert)
@@ -142,7 +136,7 @@ async def run_alert_engine(
                 "severity": "medium",
                 "target_role": "dealer",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": f"/equipment/{asset.asset_id}",
             })
             alerts.append(alert)
@@ -168,7 +162,7 @@ async def run_alert_engine(
                 "severity": "critical",
                 "target_role": "dealer",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": f"/equipment/{asset.asset_id}",
             })
             alerts.append(alert)
@@ -176,7 +170,7 @@ async def run_alert_engine(
         # D4: Unassigned Asset at Site > 24h
         unassigned_query = select(Asset).where(
             and_(
-                Asset.current_site_id.isnot(None),
+                Asset.asset_id.isnot(None),
                 Asset.current_status != "rented",
                 Asset.current_status != "maintenance"
             )
@@ -194,7 +188,7 @@ async def run_alert_engine(
                 "severity": "medium",
                 "target_role": "dealer",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": f"/equipment/{asset.asset_id}",
             })
             alerts.append(alert)
@@ -265,7 +259,7 @@ async def run_alert_engine(
     if role in (None, "manager"):
 
         # M1: Unassigned Equipment on Site > 2h
-        site_filter = Asset.current_site_id == site_id if site_id else Asset.current_site_id.isnot(None)
+        site_filter = Asset.asset_id == site_id if site_id else Asset.asset_id.isnot(None)
         m1_query = select(Asset).where(
             and_(site_filter, Asset.current_status == "available")
         )
@@ -273,16 +267,9 @@ async def run_alert_engine(
         for asset in m1_res.scalars().all():
             if await _dedup_check("unassigned_on_site", asset.asset_id, hours=2):
                 continue
-            # Find the site manager user for push
-            mgr_user_id = None
-            if asset.current_site_id:
-                site_q = await db.execute(select(Site).where(Site.site_id == asset.current_site_id))
-                site_obj = site_q.scalar_one_or_none()
-                if site_obj and site_obj.manager_id:
-                    mgr_user_id = site_obj.manager_id
 
             alert = await _save_and_push({
-                "user_id": mgr_user_id or "manager",
+                "user_id": "manager",
                 "title": "Unassigned Equipment on Site",
                 "message": f"{asset.asset_name} has no operator assigned. "
                            f"Assign an operator to start billing hours.",
@@ -290,7 +277,7 @@ async def run_alert_engine(
                 "severity": "high",
                 "target_role": "manager",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": "/operators",
             })
             alerts.append(alert)
@@ -307,7 +294,7 @@ async def run_alert_engine(
             .having(func.sum(Telemetry.idle_hours) > 4)
         )
         if site_id:
-            m3_query = m3_query.where(Asset.current_site_id == site_id)
+            m3_query = m3_query.where(Asset.asset_id == site_id)
         m3_res = await db.execute(m3_query)
         for asset, idle_hrs in m3_res.all():
             if await _dedup_check("machine_idle_rented", asset.asset_id):
@@ -321,7 +308,7 @@ async def run_alert_engine(
                 "severity": "medium",
                 "target_role": "manager",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": "/assets",
             })
             alerts.append(alert)
@@ -330,7 +317,7 @@ async def run_alert_engine(
         next_week = now + timedelta(days=7)
         m4_filter = [Asset.next_service_due <= next_week.date(), Asset.next_service_due.isnot(None)]
         if site_id:
-            m4_filter.append(Asset.current_site_id == site_id)
+            m4_filter.append(Asset.asset_id == site_id)
         m4_query = select(Asset).where(and_(*m4_filter))
         m4_res = await db.execute(m4_query)
         for asset in m4_res.scalars().all():
@@ -346,7 +333,7 @@ async def run_alert_engine(
                 "severity": "medium",
                 "target_role": "manager",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": "/assets",
             })
             alerts.append(alert)
@@ -361,7 +348,7 @@ async def run_alert_engine(
             )
         )
         if site_id:
-            m5_query = m5_query.where(Asset.current_site_id == site_id)
+            m5_query = m5_query.where(Rental.asset_id == site_id)
         m5_res = await db.execute(m5_query)
         for rental, asset in m5_res.all():
             if await _dedup_check("rental_returning", asset.asset_id, hours=12):
@@ -375,7 +362,7 @@ async def run_alert_engine(
                 "severity": "low",
                 "target_role": "manager",
                 "asset_id": asset.asset_id,
-                "site_id": asset.current_site_id,
+                "site_id": None,
                 "action_url": "/assets",
             })
             alerts.append(alert)
