@@ -10,6 +10,7 @@ import { Chip } from '@/components/Chip';
 import { Avatar } from '@/components/Avatar';
 import { API_BASE_URL } from '@/constant/api';
 import { useSession } from '@/context/SessionContext';
+import * as ExpoLocation from 'expo-location';
 
 // Helper to determine if an operator is certified for a specific machine asset type
 const isOperatorCertified = (op: any, assetType: string): boolean => {
@@ -57,6 +58,139 @@ export default function ManagerScheduling() {
   const [unassignedTasks, setUnassignedTasks] = useState<any[]>([]);
   const [previewing, setPreviewing] = useState(false);
   const [selectedStrategy, setSelectedStrategy] = useState<'any' | 'fcfs'>('any');
+
+  // Operator & Site state declarations
+  const [opLicenseInput, setOpLicenseInput] = useState('');
+  const [addOpModalVisible, setAddOpModalVisible] = useState(false);
+
+  const [addSiteModalVisible, setAddSiteModalVisible] = useState(false);
+  const [newSiteName, setNewSiteName] = useState('');
+  const [newSiteAddress, setNewSiteAddress] = useState('');
+  const [gettingGPS, setGettingGPS] = useState(false);
+  const [gpsCoords, setGpsCoords] = useState<{lat: number, lng: number} | null>(null);
+
+  const fetchGPS = async () => {
+    setGettingGPS(true);
+    try {
+      let { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Permission Denied', 'Permission to access location was denied.');
+        setGettingGPS(false);
+        return;
+      }
+      let location = await ExpoLocation.getCurrentPositionAsync({});
+      setGpsCoords({
+        lat: location.coords.latitude,
+        lng: location.coords.longitude
+      });
+      Alert.alert('Success', `Location loaded: ${location.coords.latitude.toFixed(4)}, ${location.coords.longitude.toFixed(4)}`);
+    } catch (err) {
+      Alert.alert('Error', 'Failed to get location coordinates.');
+    } finally {
+      setGettingGPS(false);
+    }
+  };
+
+  const handleAddSite = async () => {
+    if (!newSiteName.trim() || !newSiteAddress.trim()) {
+      Alert.alert('Error', 'Please fill in all site details.');
+      return;
+    }
+    let lat = gpsCoords ? gpsCoords.lat : 0.0;
+    let lng = gpsCoords ? gpsCoords.lng : 0.0;
+    if (!gpsCoords) {
+      try {
+        let { status } = await ExpoLocation.requestForegroundPermissionsAsync();
+        if (status === 'granted') {
+          let loc = await ExpoLocation.getCurrentPositionAsync({});
+          lat = loc.coords.latitude;
+          lng = loc.coords.longitude;
+        }
+      } catch (e) {}
+    }
+    try {
+      const resolvedManagerId = managerId || 'mgr-01';
+      const response = await fetch(`${API_BASE_URL}/api/v1/manager/sites/${resolvedManagerId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          site_name: newSiteName.trim(),
+          address: newSiteAddress.trim(),
+          latitude: lat,
+          longitude: lng
+        })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        Alert.alert('Success', 'New site added successfully.');
+        setNewSiteName('');
+        setNewSiteAddress('');
+        setGpsCoords(null);
+        setAddSiteModalVisible(false);
+        loadData();
+      } else {
+        Alert.alert('Error', data.detail || 'Failed to create site.');
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Connection error while creating site.');
+    }
+  };
+
+  const handleDeleteSite = async (siteId: string, siteName: string) => {
+    Alert.alert(
+      'Delete Site',
+      `Are you sure you want to delete ${siteName}?`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              const resolvedManagerId = managerId || 'mgr-01';
+              const res = await fetch(`${API_BASE_URL}/api/v1/manager/sites/${resolvedManagerId}/${siteId}`, {
+                method: 'DELETE'
+              });
+              if (res.ok) {
+                Alert.alert('Deleted', `${siteName} has been deleted.`);
+                loadData();
+              } else {
+                Alert.alert('Error', 'Failed to delete site.');
+              }
+            } catch (e) {
+              Alert.alert('Error', 'Connection error.');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleAddOperator = async () => {
+    if (!opLicenseInput.trim()) {
+      Alert.alert('Error', 'Please enter a license number.');
+      return;
+    }
+    try {
+      const resolvedManagerId = managerId || 'mgr-01';
+      const response = await fetch(`${API_BASE_URL}/api/v1/manager/add-operator/${resolvedManagerId}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ license_number: opLicenseInput.trim() })
+      });
+      const data = await response.json();
+      if (response.ok) {
+        Alert.alert('Success', data.message || 'Operator added successfully.');
+        setOpLicenseInput('');
+        setAddOpModalVisible(false);
+        loadData();
+      } else {
+        Alert.alert('Error', data.detail || 'Failed to add operator.');
+      }
+    } catch (err) {
+      Alert.alert('Error', 'Connection error while adding operator.');
+    }
+  };
 
   // Draft Task inputs
   const [draftEqType, setDraftEqType] = useState('Excavator');
@@ -210,19 +344,16 @@ export default function ManagerScheduling() {
     const endMs = timelineEnd.getTime();
 
     return rentedAssets.filter(asset => {
-      // Find assignments for this asset in the 28h window
       const assetAssignments = assignments.filter(a => {
         if (a.assetId !== asset.id) return false;
+        if (['completed', 'cancelled'].includes(a.status)) return false;
         const asgStart = new Date(a.startTime).getTime();
         const asgEnd = new Date(a.endTime).getTime();
         return asgEnd > startMs && asgStart < endMs;
       });
 
-      // If no assignments in window, it's free, show everywhere
       if (assetAssignments.length === 0) return true;
-
-      // If it has assignments in window, only show if AT LEAST ONE assignment is for the active site
-      return assetAssignments.some(asg => asg.siteId === activeSiteId);
+      return assetAssignments.some(asg => asg.siteId === activeSiteId || !asg.siteId);
     });
   }, [rentedAssets, assignments, activeSiteId, timelineStart, timelineEnd]);
 
@@ -298,6 +429,7 @@ export default function ManagerScheduling() {
         body: JSON.stringify({
           asset_id: selectedAssetId,
           operator_id: selectedOperatorId,
+          site_id: activeSiteId,
           job_title: jobTitle,
           start_date: startDate,
           start_time: startTime,
@@ -395,6 +527,7 @@ export default function ManagerScheduling() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           manager_id: resolvedManagerId,
+          site_id: activeSiteId,
           assignments: proposedAssignments
         })
       });
@@ -609,7 +742,7 @@ export default function ManagerScheduling() {
 
                 {/* Rows for each asset */}
                 {siteAssets.map(asset => {
-                  const assetAssignments = assignments.filter(a => a.assetId === asset.id);
+                  const assetAssignments = assignments.filter(a => a.assetId === asset.id && !['completed', 'cancelled'].includes(a.status));
                   const timelineAssigns = assetAssignments.filter(asg => {
                     const sTime = new Date(asg.startTime).getTime();
                     const eTime = new Date(asg.endTime).getTime();
@@ -722,7 +855,7 @@ export default function ManagerScheduling() {
                     </Text>
                   </View>
                   <Pressable onPress={() => handleDeleteQueuedTask(q.queue_id)} style={styles.cancelQueueIconBtn}>
-                    <X size={16} color={PALETTE.danger} />
+                    <X size={16} color={PALETTE.error} />
                   </Pressable>
                 </View>
               ))}
@@ -769,9 +902,9 @@ export default function ManagerScheduling() {
                       </Pressable>
                       <Pressable
                         onPress={() => handleCancelInterrupted(intr.interrupt_id, intr.job_title)}
-                        style={{ backgroundColor: PALETTE.danger + '18', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: PALETTE.danger }}
+                        style={{ backgroundColor: PALETTE.error + '18', borderRadius: 6, paddingHorizontal: 10, paddingVertical: 5, borderWidth: 1, borderColor: PALETTE.error }}
                       >
-                        <Text style={{ color: PALETTE.danger, fontSize: 11, fontFamily: FONT.semibold }}>Cancel</Text>
+                        <Text style={{ color: PALETTE.error, fontSize: 11, fontFamily: FONT.semibold }}>Cancel</Text>
                       </Pressable>
                     </View>
                   </View>
@@ -866,7 +999,7 @@ export default function ManagerScheduling() {
                     {certificationStatus.certified ? (
                       <CheckCircle2 size={16} color={PALETTE.success} />
                     ) : (
-                      <AlertTriangle size={16} color={PALETTE.danger} />
+                      <AlertTriangle size={16} color={PALETTE.error} />
                     )}
                     <Text style={[styles.validationText, certificationStatus.certified ? styles.validText : styles.invalidText]}>
                       {certificationStatus.message}
@@ -1159,6 +1292,85 @@ export default function ManagerScheduling() {
             </View>
           </View>
         </Modal>
+
+        {/* Modal: Add Operator */}
+        <Modal animationType="fade" transparent={true} visible={addOpModalVisible} onRequestClose={() => setAddOpModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: 260 }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Add Operator to Fleet</Text>
+                <Pressable onPress={() => { setAddOpModalVisible(false); setOpLicenseInput(''); }}>
+                  <X size={20} color={PALETTE.textSecondary} />
+                </Pressable>
+              </View>
+              <View style={[styles.form, { gap: SPACING.md }]}>
+                <Text style={styles.subInputLabel}>Driver License Number</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={opLicenseInput}
+                  onChangeText={setOpLicenseInput}
+                  placeholder="e.g. LIC-2241"
+                  placeholderTextColor={PALETTE.textTertiary}
+                  autoCapitalize="characters"
+                />
+                <Pressable style={styles.solveBtn} onPress={handleAddOperator}>
+                  <Text style={styles.solveBtnText}>Add to Fleet</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
+
+        {/* Modal: Add Site */}
+        <Modal animationType="fade" transparent={true} visible={addSiteModalVisible} onRequestClose={() => setAddSiteModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: 380 }]}>
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Create New Site</Text>
+                <Pressable onPress={() => { setAddSiteModalVisible(false); setNewSiteName(''); setNewSiteAddress(''); setGpsCoords(null); }}>
+                  <X size={20} color={PALETTE.textSecondary} />
+                </Pressable>
+              </View>
+              <View style={[styles.form, { gap: SPACING.md }]}>
+                <Text style={styles.subInputLabel}>Site Name</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newSiteName}
+                  onChangeText={setNewSiteName}
+                  placeholder="e.g. Downtown Construction"
+                  placeholderTextColor={PALETTE.textTertiary}
+                />
+                <Text style={styles.subInputLabel}>Site Address</Text>
+                <TextInput
+                  style={styles.textInput}
+                  value={newSiteAddress}
+                  onChangeText={setNewSiteAddress}
+                  placeholder="e.g. Broadway Ave, New York"
+                  placeholderTextColor={PALETTE.textTertiary}
+                />
+                
+                <View style={{ flexDirection: 'row', alignItems: 'center', gap: 10 }}>
+                  <Pressable 
+                    onPress={fetchGPS} 
+                    style={[styles.autoButton, { flex: 1, backgroundColor: PALETTE.catYellowSoft, borderColor: PALETTE.catYellowBorder }]}
+                    disabled={gettingGPS}
+                  >
+                    <Text style={[styles.autoButtonText, { color: PALETTE.catYellow }]}>
+                      {gettingGPS ? 'Accessing GPS...' : 'Get GPS Coordinates'}
+                    </Text>
+                  </Pressable>
+                  <Text style={{ fontSize: 12, color: PALETTE.textSecondary, flex: 1 }}>
+                    {gpsCoords ? `${gpsCoords.lat.toFixed(4)}, ${gpsCoords.lng.toFixed(4)}` : 'GPS coords unset'}
+                  </Text>
+                </View>
+
+                <Pressable style={styles.solveBtn} onPress={handleAddSite}>
+                  <Text style={styles.solveBtnText}>Create Site</Text>
+                </Pressable>
+              </View>
+            </View>
+          </View>
+        </Modal>
       </ManagerShell>
     </Screen>
   );
@@ -1201,7 +1413,7 @@ const styles = StyleSheet.create({
   opItem: { flexDirection: 'row', gap: SPACING.md, alignItems: 'center', backgroundColor: PALETTE.surfaceOverlay, padding: SPACING.md, borderRadius: RADIUS.md },
   opNameText: { fontFamily: FONT.bold, fontSize: 14, color: PALETTE.textPrimary },
   certRow: { flexDirection: 'row', gap: SPACING.xs, flexWrap: 'wrap', marginTop: 2 },
-  noCertText: { fontFamily: FONT.regular, fontSize: 11, color: PALETTE.textTertiary, italic: true },
+  noCertText: { fontFamily: FONT.regular, fontSize: 11, color: PALETTE.textTertiary, fontStyle: 'italic' },
   badgeCol: { alignItems: 'flex-end', gap: 4 },
   badgeRow: { flexDirection: 'row', alignItems: 'center', gap: 4 },
   badgeText: { fontFamily: FONT.semibold, fontSize: 11, color: PALETTE.textPrimary },
@@ -1211,7 +1423,7 @@ const styles = StyleSheet.create({
   modalTitle: { fontFamily: FONT.bold, fontSize: 18, color: PALETTE.textPrimary },
   modalTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   form: { gap: SPACING.md, marginTop: SPACING.md, paddingBottom: SPACING.xl },
-  inputLabel: { fontFamily: FONT.bold, fontSize: 12, color: PALETTE.textSecondary, textTransform: 'uppercase', tracking: 0.5 },
+  inputLabel: { fontFamily: FONT.bold, fontSize: 12, color: PALETTE.textSecondary, textTransform: 'uppercase', letterSpacing: 0.5 },
   subInputLabel: { fontFamily: FONT.medium, fontSize: 11, color: PALETTE.textSecondary, marginBottom: 4 },
   sectionLabel: { fontFamily: FONT.bold, fontSize: 13, color: PALETTE.textPrimary, textTransform: 'uppercase', marginTop: SPACING.sm },
   assetPicker: { gap: SPACING.sm, paddingBottom: SPACING.xs },
@@ -1224,10 +1436,10 @@ const styles = StyleSheet.create({
   timeInput: { height: 48, borderRadius: RADIUS.md, backgroundColor: PALETTE.surface, borderWidth: 1, borderColor: PALETTE.border, paddingHorizontal: SPACING.md, color: PALETTE.textPrimary, fontFamily: FONT.semibold, textAlign: 'center' },
   validationBanner: { flexDirection: 'row', gap: SPACING.sm, padding: SPACING.md, borderRadius: RADIUS.md, alignItems: 'center' },
   validBanner: { backgroundColor: PALETTE.success + '15' },
-  invalidBanner: { backgroundColor: PALETTE.danger + '15' },
+  invalidBanner: { backgroundColor: PALETTE.error + '15' },
   validationText: { flex: 1, fontFamily: FONT.medium, fontSize: 12 },
   validText: { color: PALETTE.success },
-  invalidText: { color: PALETTE.danger },
+  invalidText: { color: PALETTE.error },
   submitButton: { height: 50, borderRadius: RADIUS.md, backgroundColor: PALETTE.catYellow, alignItems: 'center', justifyContent: 'center', marginTop: SPACING.md },
   submitButtonDisabled: { backgroundColor: PALETTE.surface, opacity: 0.6 },
   submitButtonText: { fontFamily: FONT.bold, fontSize: 15, color: PALETTE.bg },
@@ -1245,7 +1457,7 @@ const styles = StyleSheet.create({
   draftTitle: { fontFamily: FONT.bold, fontSize: 13, color: PALETTE.textPrimary },
   draftSubtitle: { fontFamily: FONT.regular, fontSize: 11, color: PALETTE.textSecondary, marginTop: 2 },
   deleteDraftBtn: { padding: SPACING.sm, marginLeft: 'auto' },
-  emptyDraftText: { fontFamily: FONT.regular, fontSize: 12, color: PALETTE.textTertiary, textAlign: 'center', marginVertical: 12, italic: true },
+  emptyDraftText: { fontFamily: FONT.regular, fontSize: 12, color: PALETTE.textTertiary, textAlign: 'center', marginVertical: 12, fontStyle: 'italic' },
   strategyRow: { marginTop: SPACING.sm },
   strategyPill: { flex: 1, paddingVertical: SPACING.sm, paddingHorizontal: SPACING.md, borderRadius: RADIUS.md, borderWidth: 1, borderColor: PALETTE.border, backgroundColor: PALETTE.surface, alignItems: 'center' },
   strategyPillActive: { borderColor: PALETTE.catYellow, backgroundColor: PALETTE.catYellowSoft },
@@ -1269,13 +1481,13 @@ const styles = StyleSheet.create({
   queueList: { gap: SPACING.sm, marginTop: SPACING.xs },
   queueItem: { flexDirection: 'row', gap: SPACING.md, alignItems: 'center', backgroundColor: PALETTE.surfaceOverlay, borderWidth: 1, borderColor: PALETTE.border, padding: SPACING.md, borderRadius: RADIUS.md },
   queueIconCol: { position: 'relative', width: 20, height: 20, alignItems: 'center', justifyContent: 'center' },
-  priorityDot: { position: 'absolute', top: -2, right: -2, width: 6, height: 6, borderRadius: 3, backgroundColor: PALETTE.danger },
+  priorityDot: { position: 'absolute', top: -2, right: -2, width: 6, height: 6, borderRadius: 3, backgroundColor: PALETTE.error },
   queueTitleText: { fontFamily: FONT.bold, fontSize: 13, color: PALETTE.textPrimary },
   queueDetailsText: { fontFamily: FONT.regular, fontSize: 11, color: PALETTE.textSecondary },
   queueTimeText: { fontFamily: FONT.medium, fontSize: 10, color: PALETTE.textTertiary },
   cancelQueueIconBtn: { padding: SPACING.xs, marginLeft: 'auto' },
   actionBtnRowSmall: { flexDirection: 'row', gap: SPACING.sm, marginTop: SPACING.xs },
-  queueItemBtn: { backgroundColor: PALETTE.warningSoft, borderWidth: 1, borderColor: PALETTE.warningBorder, paddingVertical: 6, paddingHorizontal: 12, borderRadius: RADIUS.sm },
+  queueItemBtn: { backgroundColor: PALETTE.warningSoft, borderWidth: 1, borderColor: PALETTE.warning, paddingVertical: 6, paddingHorizontal: 12, borderRadius: RADIUS.sm },
   queueItemBtnText: { fontFamily: FONT.bold, fontSize: 11, color: PALETTE.warning },
   cancelItemBtn: { backgroundColor: PALETTE.surface, borderWidth: 1, borderColor: PALETTE.borderStrong, paddingVertical: 6, paddingHorizontal: 12, borderRadius: RADIUS.sm },
   cancelItemBtnText: { fontFamily: FONT.medium, fontSize: 11, color: PALETTE.textSecondary },

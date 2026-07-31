@@ -240,7 +240,7 @@ function ResultView({
         <View style={styles.resultGrid}>
           <ResultField icon={Cpu} label="Machine ID" value={asset.machineId} />
           <ResultField icon={QrCode} label="Rental ID" value={asset.rentalId ?? '—'} />
-          <ResultField icon={MapPin} label="Current Site" value={asset.assignedSite ?? '—'} />
+          <ResultField icon={MapPin} label="Current Site" value={asset.siteId ?? '—'} />
         </View>
 
         <View style={styles.checklistRow}>

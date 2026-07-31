@@ -1,9 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
-  Clock, MapPin, Cpu, Activity, Play, Square, AlertTriangle, Phone,
-  QrCode, ChevronRight, TrendingUp, HardHat,
+  Clock, MapPin, Cpu, Play, Square, AlertTriangle, Phone, ChevronRight, TrendingUp, LogOut,
 } from 'lucide-react-native';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
@@ -11,90 +10,84 @@ import { OperatorShell } from '@/components/OperatorShell';
 import { AppHeader } from '@/components/AppHeader';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
-
 import { AlertBanner } from '@/components/AlertBanner';
-import { EquipmentImage } from '@/components/EquipmentImage';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-
-import { shiftColor, shiftLabel, statusColor, statusLabel } from '@/theme/status';
 import { useSession } from '@/context/SessionContext';
-import { useApi } from '@/services/api';
+import { API_BASE_URL } from '@/constant/api';
 
 export default function OperatorHome() {
   const router = useRouter();
-  const { setRole, userId } = useSession();
-  const { fetchWithAuth } = useApi();
-  const [profile, setProfile] = useState<any>(null);
-  const [loading, setLoading] = useState(true);
+  const { managerId, setRole, setManagerId, setToken, setEmail } = useSession();
   const [shiftActive, setShiftActive] = useState(false);
   const [shiftDialog, setShiftDialog] = useState<null | 'start' | 'end'>(null);
-
+  const [loading, setLoading] = useState(true);
+  const [profile, setProfile] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
+  const [notifications, setNotifications] = useState<any[]>([]);
 
   useEffect(() => {
-    if (userId) {
-      Promise.all([
-        fetchWithAuth(`/api/v1/operator/${userId}/profile`),
-        fetchWithAuth(`/api/v1/operator/${userId}/tasks`)
-      ])
-        .then(([profileData, tasksData]) => {
+    const load = async () => {
+      try {
+        const operatorId = managerId || 'operator-01';
+        const [profileRes, tasksRes, notifsRes] = await Promise.all([
+          fetch(`${API_BASE_URL}/api/v1/operator/${operatorId}/profile`),
+          fetch(`${API_BASE_URL}/api/v1/operator/${operatorId}/tasks`),
+          fetch(`${API_BASE_URL}/api/v1/operator/${operatorId}/notifications`),
+        ]);
+        if (profileRes.ok) {
+          const profileData = await profileRes.json();
           setProfile(profileData);
           setShiftActive(profileData.shiftStatus === 'on_duty');
-          setTasks(tasksData);
-        })
-        .catch(console.error)
-        .finally(() => setLoading(false));
-    } else {
-      setLoading(false);
-    }
-  }, [userId]);
+        }
+        if (tasksRes.ok) {
+          const taskData = await tasksRes.json();
+          setTasks(taskData || []);
+        }
+        if (notifsRes.ok) {
+          const notificationsData = await notifsRes.json();
+          setNotifications(notificationsData || []);
+        }
+      } catch (e) {
+        console.warn('Failed to load operator home data', e);
+      } finally {
+        setLoading(false);
+      }
+    };
 
-  const toggleShift = async () => {
-    try {
-      const data = await fetchWithAuth(`/api/v1/operator/${userId}/shift/toggle`, { method: 'POST' });
-      setShiftActive(data.shiftStatus === 'on_duty');
-    } catch (e) {
-      console.error(e);
-      alert("Failed to update shift status");
-    } finally {
-      setShiftDialog(null);
-    }
+    load();
+  }, [managerId]);
+
+  const handleLogout = () => {
+    setRole(null);
+    setManagerId(null);
+    setToken(null);
+    setEmail(null);
+    router.replace('/');
   };
 
-  const todayProgress = tasks.length > 0 ? Math.min(100, Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)) : 0;
-  const workingHours = profile?.hoursWorked ? `${Math.floor(profile.hoursWorked)}h ${Math.round((profile.hoursWorked % 1) * 60)}m` : '0h 0m';
-  const inProgressTask = tasks.find((t) => t.status === 'in_progress' || t.status === 'active');
-
-  if (loading) {
-    return (
-      <Screen>
-        <OperatorShell active="home">
-          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
-            <ActivityIndicator size="large" color={PALETTE.catYellow} />
-          </View>
-        </OperatorShell>
-      </Screen>
-    );
-  }
+  const todayProgress = profile ? Math.min(100, Math.round((tasks.filter((task) => task.status === 'completed').length / Math.max(tasks.length, 1)) * 100)) : 0;
+  const workingHours = profile ? `${Math.max(0, Math.round(profile.hoursWorked))}h` : '0h';
+  const inProgressTask = tasks.find((task) => task.status === 'in_progress');
 
   return (
     <Screen>
       <OperatorShell active="home">
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <AppHeader
-            title={`Welcome, ${profile?.name?.split(' ')[0] ?? 'Operator'}`}
+            title={`Welcome, ${profile?.name?.split(' ')[0] || 'Operator'}`}
             subtitle={shiftActive ? 'Shift in progress' : 'Shift not started'}
             onBell={() => {}}
-            badge={2}
+            badge={notifications.filter((item) => !item.read_status).length}
+            right={
+              <Pressable onPress={handleLogout} style={({ pressed }) => [styles.logoutBtn, pressed && styles.pressed]}>
+                <LogOut size={20} color={PALETTE.error} strokeWidth={2} />
+              </Pressable>
+            }
           />
           <AlertBanner role="operator" />
 
-          {/* Shift status banner */}
           <View style={styles.section}>
-            <Pressable
-              style={({ pressed }) => [styles.shiftBanner, shiftActive && styles.shiftBannerActive, pressed && styles.pressed]}
-              onPress={() => setShiftDialog(shiftActive ? 'end' : 'start')}
-            >
+            <Pressable style={({ pressed }) => [styles.shiftBanner, shiftActive && styles.shiftBannerActive, pressed && styles.pressed]} onPress={() => setShiftDialog(shiftActive ? 'end' : 'start')}>
               <View style={[styles.shiftIconBox, shiftActive && styles.shiftIconBoxActive]}>
                 <Clock size={22} color={shiftActive ? PALETTE.textInverse : PALETTE.catYellow} strokeWidth={2.2} />
               </View>
@@ -102,16 +95,10 @@ export default function OperatorHome() {
                 <Text style={styles.shiftLabel}>Current Shift</Text>
                 <Text style={styles.shiftValue}>{shiftActive ? 'On Duty — Day Shift' : 'Tap to start your shift'}</Text>
               </View>
-              <Chip
-                label={shiftActive ? 'LIVE' : 'OFF'}
-                color={shiftActive ? PALETTE.success : PALETTE.textTertiary}
-                soft={shiftActive ? PALETTE.successSoft : 'rgba(255,255,255,0.06)'}
-                dot
-              />
+              <Chip label={shiftActive ? 'LIVE' : 'OFF'} color={shiftActive ? PALETTE.success : PALETTE.textTertiary} soft={shiftActive ? PALETTE.successSoft : 'rgba(255,255,255,0.06)'} dot />
             </Pressable>
           </View>
 
-          {/* Quick stats */}
           <View style={styles.section}>
             <View style={styles.statRow}>
               <MiniStat Icon={TrendingUp} label="Today's Progress" value={`${todayProgress}%`} />
@@ -119,97 +106,69 @@ export default function OperatorHome() {
             </View>
           </View>
 
-          {/* Assigned equipment */}
-          {inProgressTask && (
-            <View style={styles.section}>
-              <SectionTitle title="Assigned Equipment" />
-              <Card style={styles.equipCard}>
-                <EquipmentImage seed={inProgressTask.imageSeed || inProgressTask.machineName || 'equip'} size={88} rounded={14} />
-                <View style={{ flex: 1, gap: SPACING.xs }}>
-                  <Text style={styles.equipName}>{inProgressTask.machineName}</Text>
-                  <Text style={styles.equipMeta}>Machine ID · {inProgressTask.machineId}</Text>
-                  {inProgressTask.rentalId && <Text style={styles.equipMeta}>Rental · {inProgressTask.rentalId}</Text>}
-                  <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: 4 }}>
-                    <Chip label="Rented" color={statusColor('rented')} soft={`${statusColor('rented')}22`} dot />
-                    <Chip label={`Health ${inProgressTask.healthScore ?? 100}%`} color={PALETTE.info} soft={PALETTE.infoSoft} />
-                  </View>
-                </View>
-              </Card>
-            </View>
-          )}
-
-          {/* Current site */}
-          {inProgressTask && inProgressTask.siteName && (
-            <View style={styles.section}>
-              <SectionTitle title="Current Site" />
-              <Card style={styles.siteCard}>
-                <View style={styles.siteIconBox}>
-                  <MapPin size={20} color={PALETTE.catYellow} strokeWidth={2.2} />
-                </View>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.siteName}>{inProgressTask.siteName}</Text>
-                  <Text style={styles.siteLoc}>Active Worksite</Text>
-                </View>
-                <ChevronRight size={18} color={PALETTE.textTertiary} strokeWidth={2} />
-              </Card>
-            </View>
-          )}
-
-          {/* Machine status + in-progress task */}
           <View style={styles.section}>
-            <SectionTitle title="Machine Status" />
+            <SectionTitle title="Operator Snapshot" />
+            <Card style={styles.equipCard}>
+              <View style={{ flex: 1, gap: SPACING.xs }}>
+                <Text style={styles.equipName}>{profile?.name || 'Operator'}</Text>
+                <Text style={styles.equipMeta}>Employee {profile?.employeeId || '—'}</Text>
+                <Text style={styles.equipMeta}>Experience · {profile?.experienceYears ?? 0} years</Text>
+                <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: 4 }}>
+                  <Chip label={shiftActive ? 'On Duty' : 'Off Duty'} color={shiftActive ? PALETTE.success : PALETTE.textTertiary} soft={shiftActive ? PALETTE.successSoft : 'rgba(255,255,255,0.06)'} dot />
+                  <Chip label={`Safety ${profile?.safetyScore ?? 100}`} color={PALETTE.info} soft={PALETTE.infoSoft} />
+                </View>
+              </View>
+            </Card>
+          </View>
+
+          <View style={styles.section}>
+            <SectionTitle title="Current Site" />
+            <Card style={styles.siteCard}>
+              <View style={styles.siteIconBox}>
+                <MapPin size={20} color={PALETTE.catYellow} strokeWidth={2.2} />
+              </View>
+              <View style={{ flex: 1 }}>
+                <Text style={styles.siteName}>Main Yard</Text>
+                <Text style={styles.siteLoc}>Live task queue is synced from the backend.</Text>
+              </View>
+              <ChevronRight size={18} color={PALETTE.textTertiary} strokeWidth={2} />
+            </Card>
+          </View>
+
+          <View style={styles.section}>
+            <SectionTitle title="Active Task" />
             <Card>
               <View style={styles.statusRow}>
                 <View style={styles.statusIconBox}>
                   <Cpu size={20} color={PALETTE.success} strokeWidth={2.2} />
                 </View>
-                <Text style={styles.statusLabel}>Operational</Text>
-                <Chip label="All systems nominal" color={PALETTE.success} soft={PALETTE.successSoft} dot />
+                {loading ? (
+                  <ActivityIndicator size="small" color={PALETTE.catYellow} />
+                ) : inProgressTask ? (
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.statusLabel}>{inProgressTask.name}</Text>
+                    <Text style={styles.statusMeta}>{inProgressTask.machineName} · {inProgressTask.machineId}</Text>
+                  </View>
+                ) : (
+                  <View style={{ flex: 1 }}>
+                    <Text style={styles.statusLabel}>No active task</Text>
+                    <Text style={styles.statusMeta}>Open My Tasks to start one.</Text>
+                  </View>
+                )}
               </View>
-              {inProgressTask && (
-                <View style={styles.taskInline}>
-                  <Text style={styles.taskInlineTitle} numberOfLines={1}>{inProgressTask.name}</Text>
-
-                </View>
-              )}
             </Card>
           </View>
 
-          {/* Quick actions */}
           <View style={styles.section}>
             <SectionTitle title="Quick Actions" />
             <View style={styles.actionsGrid}>
-              <QuickAction
-                Icon={Play}
-                label="Start Shift"
-                accent={PALETTE.success}
-                onPress={() => setShiftDialog('start')}
-                disabled={shiftActive}
-              />
-              <QuickAction
-                Icon={Square}
-                label="End Shift"
-                accent={PALETTE.error}
-                onPress={() => setShiftDialog('end')}
-                disabled={!shiftActive}
-              />
-              <QuickAction
-                Icon={QrCode}
-                label="Scan QR"
-                accent={PALETTE.catYellow}
-                onPress={() => router.push('/(operator)/scan')}
-              />
-              <QuickAction
-                Icon={AlertTriangle}
-                label="Report Issue"
-                accent={PALETTE.warning}
-                onPress={() => router.push('/(operator)/scan')}
-              />
+              <QuickAction Icon={Play} label="Start Shift" accent={PALETTE.success} onPress={() => setShiftDialog('start')} disabled={shiftActive} />
+              <QuickAction Icon={Square} label="End Shift" accent={PALETTE.error} onPress={() => setShiftDialog('end')} disabled={!shiftActive} />
+              <QuickAction Icon={AlertTriangle} label="Report Issue" accent={PALETTE.warning} onPress={() => router.push('/(operator)/tasks')} />
             </View>
           </View>
 
-          {/* Emergency contact */}
-          <View style={[styles.section, { marginBottom: SPACING.xxl }]}>
+          <View style={[styles.section, { marginBottom: SPACING.xxl }]}> 
             <Pressable style={({ pressed }) => [styles.emergencyCard, pressed && styles.pressed]}>
               <View style={styles.emergencyIconBox}>
                 <Phone size={20} color={PALETTE.error} strokeWidth={2.2} />
@@ -224,23 +183,8 @@ export default function OperatorHome() {
         </ScrollView>
       </OperatorShell>
 
-      <ConfirmDialog
-        visible={shiftDialog === 'start'}
-        title="Start Shift"
-        message="This will record the start of your day shift and begin tracking working hours."
-        confirmLabel="Start Shift"
-        onConfirm={toggleShift}
-        onCancel={() => setShiftDialog(null)}
-      />
-      <ConfirmDialog
-        visible={shiftDialog === 'end'}
-        title="End Shift"
-        message="This will end your current shift and save today's working hours."
-        confirmLabel="End Shift"
-        danger
-        onConfirm={toggleShift}
-        onCancel={() => setShiftDialog(null)}
-      />
+      <ConfirmDialog visible={shiftDialog === 'start'} title="Start Shift" message="This will record the start of your day shift and begin tracking working hours." confirmLabel="Start Shift" onConfirm={() => { setShiftActive(true); setShiftDialog(null); }} onCancel={() => setShiftDialog(null)} />
+      <ConfirmDialog visible={shiftDialog === 'end'} title="End Shift" message="This will end your current shift and save today's working hours." confirmLabel="End Shift" danger onConfirm={() => { setShiftActive(false); setShiftDialog(null); }} onCancel={() => setShiftDialog(null)} />
     </Screen>
   );
 }
@@ -303,8 +247,7 @@ const styles = StyleSheet.create({
   statusRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md },
   statusIconBox: { width: 40, height: 40, borderRadius: RADIUS.md, backgroundColor: PALETTE.successSoft, alignItems: 'center', justifyContent: 'center' },
   statusLabel: { flex: 1, fontFamily: FONT.semibold, fontSize: 15, color: PALETTE.textPrimary },
-  taskInline: { marginTop: SPACING.md, paddingTop: SPACING.md, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: PALETTE.border, gap: SPACING.sm },
-  taskInlineTitle: { fontFamily: FONT.medium, fontSize: 14, color: PALETTE.textPrimary },
+  statusMeta: { fontFamily: FONT.regular, fontSize: 12, color: PALETTE.textSecondary, marginTop: 2 },
   actionsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: SPACING.md },
   qaCard: { width: '48%', flexGrow: 1, backgroundColor: PALETTE.surface, borderRadius: RADIUS.lg, padding: SPACING.lg, borderWidth: StyleSheet.hairlineWidth, borderColor: PALETTE.border, gap: SPACING.sm, ...SHADOW.card },
   qaDisabled: { opacity: 0.4 },
@@ -314,4 +257,5 @@ const styles = StyleSheet.create({
   emergencyIconBox: { width: 44, height: 44, borderRadius: RADIUS.md, backgroundColor: PALETTE.error + '33', alignItems: 'center', justifyContent: 'center' },
   emergencyTitle: { fontFamily: FONT.semibold, fontSize: 15, color: PALETTE.textPrimary },
   emergencySub: { fontFamily: FONT.regular, fontSize: 13, color: PALETTE.textSecondary, marginTop: 2 },
+  logoutBtn: { width: 42, height: 42, borderRadius: RADIUS.md, backgroundColor: PALETTE.surface, borderWidth: 1, borderColor: PALETTE.border, alignItems: 'center', justifyContent: 'center' },
 });

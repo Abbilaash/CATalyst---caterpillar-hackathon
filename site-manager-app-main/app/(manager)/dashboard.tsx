@@ -3,7 +3,7 @@ import { useRouter } from 'expo-router';
 import {
   Boxes, KeyRound, Cog, Moon, Users, Activity, Wrench, ShieldAlert,
   PackagePlus, FileText, CheckCircle2, AlertTriangle, CalendarClock,
-  ChevronRight,
+  ChevronRight, LogOut,
 } from 'lucide-react-native';
 import { ComponentType, useState, useEffect } from 'react';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
@@ -49,11 +49,21 @@ const ACTIVITY_ICONS: Record<string, { Icon: IconType; accent: string }> = {
 
 export default function ManagerDashboard() {
   const router = useRouter();
-  const { managerId } = useSession();
+  const { managerId, setRole, setManagerId, setToken, setEmail } = useSession();
   const [stats, setStats] = useState(DASHBOARD_STATS);
   const [activities, setActivities] = useState(ACTIVITIES);
   const [managerInfo, setManagerInfo] = useState(CURRENT_MANAGER);
   const [loading, setLoading] = useState(true);
+
+  const [unreadAlerts, setUnreadAlerts] = useState(0);
+
+  const handleLogout = () => {
+    setRole(null);
+    setManagerId(null);
+    setToken(null);
+    setEmail(null);
+    router.replace('/');
+  };
 
   useEffect(() => {
     async function fetchDashboard() {
@@ -75,6 +85,12 @@ export default function ManagerDashboard() {
             });
           }
         }
+        // Fetch unread notifications count
+        const alertRes = await fetch(`${API_BASE_URL}/api/v1/alerts?role=manager&refresh=false`);
+        if (alertRes.ok) {
+          const alertData = await alertRes.json();
+          setUnreadAlerts(alertData.summary?.unread || 0);
+        }
       } catch (err) {
         console.warn('Failed to load dashboard from backend, using mock:', err);
       } finally {
@@ -92,8 +108,16 @@ export default function ManagerDashboard() {
             title={`Welcome, ${managerInfo.name.split(' ')[0]}`}
             subtitle={`${managerInfo.siteName} · Site Manager`}
             onSearch={() => router.push('/(manager)/assets')}
-            onBell={() => { }}
-            badge={stats.safetyAlerts}
+            onBell={() => router.push('/(manager)/notifications')}
+            badge={unreadAlerts}
+            right={
+              <Pressable
+                onPress={handleLogout}
+                style={({ pressed }) => [styles.logoutBtn, pressed && styles.pressed]}
+              >
+                <LogOut size={20} color={PALETTE.error} strokeWidth={2} />
+              </Pressable>
+            }
           />
           <AlertBanner role="manager" />
 
@@ -241,4 +265,14 @@ const styles = StyleSheet.create({
   timelineDetail: { fontFamily: FONT.regular, fontSize: 12, color: PALETTE.textSecondary, marginTop: 2 },
   timelineTime: { fontFamily: FONT.medium, fontSize: 11, color: PALETTE.textTertiary },
   pressed: { opacity: 0.85, transform: [{ scale: 0.98 }] },
+  logoutBtn: {
+    width: 42,
+    height: 42,
+    borderRadius: RADIUS.md,
+    backgroundColor: PALETTE.surface,
+    borderWidth: 1,
+    borderColor: PALETTE.border,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
 });

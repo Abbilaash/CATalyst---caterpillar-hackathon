@@ -20,7 +20,7 @@ import { useApi } from '@/services/api';
 
 export default function OperatorProfile() {
   const router = useRouter();
-  const { setRole, setToken, setUserId, userId } = useSession();
+  const { setRole, setToken, setManagerId: setUserId, managerId: userId } = useSession();
   const { fetchWithAuth } = useApi();
   const [logout, setLogout] = useState(false);
   const [profile, setProfile] = useState<any>(null);
