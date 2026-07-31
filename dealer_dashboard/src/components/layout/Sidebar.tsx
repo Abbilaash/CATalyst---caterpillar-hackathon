@@ -16,7 +16,6 @@ import {
 import { motion } from 'framer-motion';
 import { useState, useEffect } from 'react';
 import { fetchAlerts } from '@/services/api';
-
 const nav = [
   { to: '/', label: 'Mission Control', icon: LayoutDashboard, end: true },
   { to: '/fleet', label: 'Fleet Intelligence', icon: Truck },
@@ -28,6 +27,7 @@ const nav = [
   { to: '/reports', label: 'Reports', icon: FileText },
   { to: '/inspection', label: 'AI Inspection', icon: Camera },
   { to: '/alerts', label: 'Alert Center', icon: Bell },
+  { to: '/rentals', label: 'Rental Management', icon: FileText },
 ];
 
 export function Sidebar({ open }: { open: boolean }) {

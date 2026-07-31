@@ -64,3 +64,65 @@ async def allocate_machinery(approve_req: RentalApproveRequest, db: AsyncSession
         await db.refresh(r)
         
     return rentals
+
+from app.schemas.workflows import ManualCheckInRequest, ManualCheckOutRequest
+
+@router.post("/rentals/checkin", response_model=RentalResponse)
+async def manual_check_in(req: ManualCheckInRequest, db: AsyncSession = Depends(get_db)):
+    # Find asset
+    result = await db.execute(select(Asset).where(Asset.asset_id == req.asset_id))
+    asset = result.scalar_one_or_none()
+    if not asset:
+        raise HTTPException(status_code=404, detail="Asset not found")
+        
+    # Mark asset as rented
+    await db.execute(
+        update(Asset).where(Asset.asset_id == req.asset_id).values(
+            current_status="idle",
+            assigned_site_manager=req.manager_id
+        )
+    )
+    
+    # Create rental record
+    new_rental = Rental(
+        asset_id=req.asset_id,
+        assigned_site_manager=req.manager_id,
+        check_in_time=req.check_in_date,
+        check_out_time=None,
+        expected_return=req.check_out_date,
+        rental_status="active"
+    )
+    db.add(new_rental)
+    await db.commit()
+    await db.refresh(new_rental)
+    
+    return new_rental
+
+@router.post("/rentals/checkout")
+async def manual_check_out(req: ManualCheckOutRequest, db: AsyncSession = Depends(get_db)):
+    # Find active rental
+    result = await db.execute(
+        select(Rental).where(
+            (Rental.asset_id == req.asset_id) & 
+            (Rental.rental_status == "active")
+        )
+    )
+    rental = result.scalar_one_or_none()
+    if not rental:
+        raise HTTPException(status_code=404, detail="No active rental found for this asset")
+        
+    # Update rental
+    rental.rental_status = "completed"
+    rental.check_out_time = datetime.utcnow()
+    
+    # Update asset
+    await db.execute(
+        update(Asset).where(Asset.asset_id == req.asset_id).values(
+            current_status="yard",
+            assigned_site_manager=None,
+            current_site_id=None
+        )
+    )
+    
+    await db.commit()
+    return {"message": "Asset successfully checked out and returned to yard."}

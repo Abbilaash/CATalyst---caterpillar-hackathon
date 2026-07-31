@@ -13,6 +13,7 @@ import { CopilotPage } from '@/pages/CopilotPage';
 import { SettingsPage } from '@/pages/SettingsPage';
 import { AlertsPage } from '@/pages/AlertsPage';
 import { InspectionPage } from '@/pages/InspectionPage';
+import { RentalsPage } from '@/pages/RentalsPage';
 
 function App() {
   return (
@@ -22,6 +23,7 @@ function App() {
           <Route path="/" element={<MissionControlPage />} />
           <Route path="/fleet" element={<FleetPage />} />
           <Route path="/equipment/:id" element={<EquipmentDetailsPage />} />
+          <Route path="/rentals" element={<RentalsPage />} />
           <Route path="/operations" element={<LiveOperationsPage />} />
           <Route path="/sites" element={<SitesPage />} />
           <Route path="/workforce" element={<WorkforcePage />} />

@@ -51,13 +51,22 @@ class RentalApproveRequest(BaseModel):
 class RentalResponse(BaseModel):
     rental_id: str
     asset_id: str
-    site_id: str
+    site_id: Optional[str] = None
     check_in_time: datetime
     expected_return: datetime
     rental_status: str
 
     class Config:
         from_attributes = True
+
+class ManualCheckInRequest(BaseModel):
+    asset_id: str
+    manager_id: str
+    check_in_date: datetime
+    check_out_date: datetime
+
+class ManualCheckOutRequest(BaseModel):
+    asset_id: str
 
 # ================================
 # ASSIGNMENTS

@@ -17,6 +17,16 @@ export const fetchHealthTrend = async (id: string) => {
   return response.data;
 };
 
+export const checkInAsset = async (data: { asset_id: string; manager_id: string; check_in_date: string; check_out_date: string }) => {
+  const response = await api.post('/dealer/rentals/checkin', data);
+  return response.data;
+};
+
+export const checkOutAsset = async (asset_id: string) => {
+  const response = await api.post('/dealer/rentals/checkout', { asset_id });
+  return response.data;
+};
+
 export const fetchKPIs = async () => {
   const response = await api.get('/analytics/kpis');
   return response.data;
