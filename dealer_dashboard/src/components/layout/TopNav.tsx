@@ -47,6 +47,10 @@ export function TopNav({ onMenu }: { onMenu: () => void }) {
   const [unreadCount, setUnreadCount] = useState(0);
   const [dropdownOpen, setDropdownOpen] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  
+  // New state for critical alert popup
+  const [criticalPopupAlerts, setCriticalPopupAlerts] = useState<Alert[]>([]);
+  const [showCriticalPopup, setShowCriticalPopup] = useState(false);
 
   // Fetch alerts and poll every 30s
   useEffect(() => {
@@ -55,6 +59,13 @@ export function TopNav({ onMenu }: { onMenu: () => void }) {
         const data = await fetchAlerts('dealer');
         setAlerts(data.alerts || []);
         setUnreadCount(data.summary?.unread || 0);
+        
+        // Find unread critical alerts for the popup
+        const critical = (data.alerts || []).filter((a: Alert) => a.severity === 'critical' && !a.isRead);
+        if (critical.length > 0) {
+          setCriticalPopupAlerts(critical);
+          setShowCriticalPopup(true);
+        }
       } catch (e) {
         // Silently fail on polling
       }
@@ -90,6 +101,7 @@ export function TopNav({ onMenu }: { onMenu: () => void }) {
   const topAlerts = alerts.slice(0, 5);
 
   return (
+    <>
     <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-white/[0.04] bg-ink-800/80 px-4 backdrop-blur-xl lg:px-8">
       <IconButton className="lg:hidden" onClick={onMenu} aria-label="Open menu">
         <Menu className="h-5 w-5" />
@@ -216,5 +228,58 @@ export function TopNav({ onMenu }: { onMenu: () => void }) {
         </button>
       </div>
     </header>
+      
+      {/* Critical Alert Popup Overlay */}
+      <AnimatePresence>
+        {showCriticalPopup && (
+          <motion.div 
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 backdrop-blur-sm p-4"
+          >
+            <motion.div 
+              initial={{ opacity: 0, y: 20, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: 20, scale: 0.95 }}
+              className="w-full max-w-lg rounded-2xl border border-red-500/40 bg-ink-800 shadow-2xl shadow-red-900/30 overflow-hidden"
+            >
+              <div className="flex items-center justify-between border-b border-red-500/30 bg-red-500/10 px-6 py-4">
+                <div className="flex items-center gap-3 text-red-400">
+                  <AlertTriangle className="h-6 w-6 animate-pulse" />
+                  <span className="text-lg font-bold uppercase tracking-wider">Critical Alerts</span>
+                </div>
+                <button onClick={() => setShowCriticalPopup(false)} className="text-ink-300 hover:text-white transition-colors">
+                  <X className="h-5 w-5" />
+                </button>
+              </div>
+              
+              <div className="max-h-[500px] overflow-y-auto p-4 space-y-3">
+                {criticalPopupAlerts.map(alert => (
+                  <div key={alert.id} className="rounded-xl bg-ink-900 p-4 border border-white/10 relative overflow-hidden shadow-sm">
+                    <div className="absolute top-0 left-0 bottom-0 w-1.5 bg-red-500" />
+                    <div className="ml-3">
+                      <h4 className="text-base font-bold text-white">{alert.title}</h4>
+                      <p className="mt-1.5 text-sm text-ink-200 leading-relaxed">{alert.message}</p>
+                      <div className="mt-4 flex justify-end">
+                        <button 
+                          onClick={() => {
+                            handleAlertClick(alert);
+                            setShowCriticalPopup(false);
+                          }}
+                          className="rounded-lg bg-cat-yellow/20 px-4 py-2 text-sm font-semibold text-cat-yellow hover:bg-cat-yellow hover:text-ink-900 transition-colors"
+                        >
+                          Take Action →
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </>
   );
 }
