@@ -93,7 +93,7 @@ async def register_user(user_in: UserCreate):
         status=user.status
     )
 
-@router.post("/login", response_model=Token)
+@router.post("/login")
 async def login(user_in: UserLogin):
     user = await User.find_one({"email": user_in.email})
     if not user or user.password_hash != user_in.password:
@@ -122,7 +122,13 @@ async def login(user_in: UserLogin):
     access_token = create_access_token(
         data={"sub": str(user.id), "role": user.role}
     )
-    return {"access_token": access_token, "token_type": "bearer"}
+    return {
+        "access_token": access_token,
+        "token_type": "bearer",
+        "user_id": str(user.id),
+        "role": user.role,
+        "name": user.name
+    }
 
 @router.get("/profile/manager", response_model=UserProfileResponse)
 async def get_manager_profile():

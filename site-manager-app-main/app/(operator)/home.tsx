@@ -1,5 +1,5 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, Pressable, ScrollView } from 'react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, Pressable, ScrollView, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import {
   Clock, MapPin, Cpu, Activity, Play, Square, AlertTriangle, Phone,
@@ -15,28 +15,74 @@ import { Chip } from '@/components/Chip';
 import { AlertBanner } from '@/components/AlertBanner';
 import { EquipmentImage } from '@/components/EquipmentImage';
 import { ConfirmDialog } from '@/components/ConfirmDialog';
-import {
-  CURRENT_OPERATOR, CURRENT_ASSET, CURRENT_SITE, CURRENT_TASKS, DASHBOARD_STATS,
-} from '@/data/mock';
+
 import { shiftColor, shiftLabel, statusColor, statusLabel } from '@/theme/status';
 import { useSession } from '@/context/SessionContext';
+import { useApi } from '@/services/api';
 
 export default function OperatorHome() {
   const router = useRouter();
-  const { setRole } = useSession();
-  const [shiftActive, setShiftActive] = useState(CURRENT_OPERATOR.shiftStatus === 'on_duty');
+  const { setRole, userId } = useSession();
+  const { fetchWithAuth } = useApi();
+  const [profile, setProfile] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  const [shiftActive, setShiftActive] = useState(false);
   const [shiftDialog, setShiftDialog] = useState<null | 'start' | 'end'>(null);
 
-  const todayProgress = 58;
-  const workingHours = '6h 24m';
-  const inProgressTask = CURRENT_TASKS.find((t) => t.status === 'in_progress');
+  const [tasks, setTasks] = useState<any[]>([]);
+
+  useEffect(() => {
+    if (userId) {
+      Promise.all([
+        fetchWithAuth(`/api/v1/operator/${userId}/profile`),
+        fetchWithAuth(`/api/v1/operator/${userId}/tasks`)
+      ])
+        .then(([profileData, tasksData]) => {
+          setProfile(profileData);
+          setShiftActive(profileData.shiftStatus === 'on_duty');
+          setTasks(tasksData);
+        })
+        .catch(console.error)
+        .finally(() => setLoading(false));
+    } else {
+      setLoading(false);
+    }
+  }, [userId]);
+
+  const toggleShift = async () => {
+    try {
+      const data = await fetchWithAuth(`/api/v1/operator/${userId}/shift/toggle`, { method: 'POST' });
+      setShiftActive(data.shiftStatus === 'on_duty');
+    } catch (e) {
+      console.error(e);
+      alert("Failed to update shift status");
+    } finally {
+      setShiftDialog(null);
+    }
+  };
+
+  const todayProgress = tasks.length > 0 ? Math.min(100, Math.round((tasks.filter(t => t.status === 'completed').length / tasks.length) * 100)) : 0;
+  const workingHours = profile?.hoursWorked ? `${Math.floor(profile.hoursWorked)}h ${Math.round((profile.hoursWorked % 1) * 60)}m` : '0h 0m';
+  const inProgressTask = tasks.find((t) => t.status === 'in_progress' || t.status === 'active');
+
+  if (loading) {
+    return (
+      <Screen>
+        <OperatorShell active="home">
+          <View style={{ flex: 1, alignItems: 'center', justifyContent: 'center' }}>
+            <ActivityIndicator size="large" color={PALETTE.catYellow} />
+          </View>
+        </OperatorShell>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
       <OperatorShell active="home">
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <AppHeader
-            title={`Welcome, ${CURRENT_OPERATOR.name.split(' ')[0]}`}
+            title={`Welcome, ${profile?.name?.split(' ')[0] ?? 'Operator'}`}
             subtitle={shiftActive ? 'Shift in progress' : 'Shift not started'}
             onBell={() => {}}
             badge={2}
@@ -74,18 +120,18 @@ export default function OperatorHome() {
           </View>
 
           {/* Assigned equipment */}
-          {CURRENT_ASSET && (
+          {inProgressTask && (
             <View style={styles.section}>
               <SectionTitle title="Assigned Equipment" />
               <Card style={styles.equipCard}>
-                <EquipmentImage seed={CURRENT_ASSET.imageSeed} size={88} rounded={14} />
+                <EquipmentImage seed={inProgressTask.imageSeed || inProgressTask.machineName || 'equip'} size={88} rounded={14} />
                 <View style={{ flex: 1, gap: SPACING.xs }}>
-                  <Text style={styles.equipName}>{CURRENT_ASSET.name}</Text>
-                  <Text style={styles.equipMeta}>Machine ID · {CURRENT_ASSET.machineId}</Text>
-                  <Text style={styles.equipMeta}>Rental · {CURRENT_ASSET.rentalId}</Text>
+                  <Text style={styles.equipName}>{inProgressTask.machineName}</Text>
+                  <Text style={styles.equipMeta}>Machine ID · {inProgressTask.machineId}</Text>
+                  {inProgressTask.rentalId && <Text style={styles.equipMeta}>Rental · {inProgressTask.rentalId}</Text>}
                   <View style={{ flexDirection: 'row', gap: SPACING.sm, marginTop: 4 }}>
-                    <Chip label={statusLabel(CURRENT_ASSET.status)} color={statusColor(CURRENT_ASSET.status)} soft={`${statusColor(CURRENT_ASSET.status)}22`} dot />
-                    <Chip label={`Health ${CURRENT_ASSET.healthScore}%`} color={PALETTE.info} soft={PALETTE.infoSoft} />
+                    <Chip label="Rented" color={statusColor('rented')} soft={`${statusColor('rented')}22`} dot />
+                    <Chip label={`Health ${inProgressTask.healthScore ?? 100}%`} color={PALETTE.info} soft={PALETTE.infoSoft} />
                   </View>
                 </View>
               </Card>
@@ -93,7 +139,7 @@ export default function OperatorHome() {
           )}
 
           {/* Current site */}
-          {CURRENT_SITE && (
+          {inProgressTask && inProgressTask.siteName && (
             <View style={styles.section}>
               <SectionTitle title="Current Site" />
               <Card style={styles.siteCard}>
@@ -101,8 +147,8 @@ export default function OperatorHome() {
                   <MapPin size={20} color={PALETTE.catYellow} strokeWidth={2.2} />
                 </View>
                 <View style={{ flex: 1 }}>
-                  <Text style={styles.siteName}>{CURRENT_SITE.name}</Text>
-                  <Text style={styles.siteLoc}>{CURRENT_SITE.location}</Text>
+                  <Text style={styles.siteName}>{inProgressTask.siteName}</Text>
+                  <Text style={styles.siteLoc}>Active Worksite</Text>
                 </View>
                 <ChevronRight size={18} color={PALETTE.textTertiary} strokeWidth={2} />
               </Card>
@@ -183,7 +229,7 @@ export default function OperatorHome() {
         title="Start Shift"
         message="This will record the start of your day shift and begin tracking working hours."
         confirmLabel="Start Shift"
-        onConfirm={() => { setShiftActive(true); setShiftDialog(null); }}
+        onConfirm={toggleShift}
         onCancel={() => setShiftDialog(null)}
       />
       <ConfirmDialog
@@ -192,7 +238,7 @@ export default function OperatorHome() {
         message="This will end your current shift and save today's working hours."
         confirmLabel="End Shift"
         danger
-        onConfirm={() => { setShiftActive(false); setShiftDialog(null); }}
+        onConfirm={toggleShift}
         onCancel={() => setShiftDialog(null)}
       />
     </Screen>

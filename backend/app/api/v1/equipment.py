@@ -3,7 +3,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.future import select
 from sqlalchemy import func, and_, desc
 from app.db.postgres import get_db
-from app.models.postgres.core import Asset, Site, Rental
+from app.models.postgres.core import Asset, Site, Rental, Assignment
 from app.models.postgres.telemetry import Telemetry
 from pydantic import BaseModel
 from datetime import datetime, timedelta
@@ -35,10 +35,12 @@ async def get_all_equipment(db: AsyncSession = Depends(get_db)):
     site_result = await db.execute(select(Site))
     sites_map = {s.site_id: s.site_name for s in site_result.scalars().all()}
     
-    # Bulk fetch active rentals
-    rental_res = await db.execute(select(Rental).where(Rental.rental_status == 'active'))
-    active_rentals = rental_res.scalars().all()
-    rental_map = {r.asset_id: r for r in active_rentals}
+    # Bulk fetch active assignments (used instead of rentals since rentals table may be empty)
+    assign_res = await db.execute(select(Assignment).where(Assignment.assignment_status.in_(['active', 'scheduled'])))
+    active_assigns = assign_res.scalars().all()
+    assign_map = {}  # asset_id -> Assignment
+    for a in active_assigns:
+        assign_map[a.asset_id] = a
     
     # Bulk fetch latest telemetry (using a distinct on or just fetching recent)
     # Since we don't have distinct in generic SA easily, we'll fetch last 24h of telemetry and group in memory
@@ -61,7 +63,9 @@ async def get_all_equipment(db: AsyncSession = Depends(get_db)):
     now = datetime.utcnow()
     
     for asset in assets:
-        site_name = sites_map.get(asset.current_site_id, "Dealer Yard")
+        # Get site name from active assignment instead of asset.current_site_id
+        assign = assign_map.get(asset.asset_id)
+        site_name = sites_map.get(assign.site_id, "Dealer Yard") if assign and assign.site_id else "Dealer Yard"
                 
         ui_status = "idle"
         if asset.current_status == "rented":
@@ -71,11 +75,10 @@ async def get_all_equipment(db: AsyncSession = Depends(get_db)):
             
         operator_name = "Unassigned"
         rental_days = 0
-        if ui_status == "working" and asset.asset_id in rental_map:
-            rental = rental_map[asset.asset_id]
-            operator_name = rental.assigned_site_manager or "Unknown"
-            if rental.expected_return:
-                rental_days = max(0, (rental.expected_return - now).days)
+        if assign:
+            operator_name = assign.operator_id or "Unknown"
+            if assign.end_time:
+                rental_days = max(0, (assign.end_time - now).days)
 
         tel = tel_latest_map.get(asset.asset_id)
         

@@ -56,7 +56,7 @@ const base64Decode = (input: string): string => {
   if (str.length % 4 === 1) {
     throw new Error("'atob' failed: The string to be decoded is not correctly encoded.");
   }
-  for (let bc = 0, bs = 0, buffer, idx = 0; idx < str.length; idx++) {
+  for (let bc = 0, bs = 0, buffer: number, idx = 0; idx < str.length; idx++) {
     const char = str.charAt(idx);
     const charIndex = chars.indexOf(char);
     if (charIndex === -1) continue;
