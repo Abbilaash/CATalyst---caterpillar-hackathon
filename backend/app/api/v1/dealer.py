@@ -49,7 +49,8 @@ async def allocate_machinery(approve_req: RentalApproveRequest, db: AsyncSession
         new_rental = Rental(
             asset_id=asset_id,
             assigned_site_manager=rental_req.manager_id,
-            check_in_time=datetime.utcnow(),
+            check_in_time=approve_req.check_in_time or datetime.utcnow(),
+            check_out_time=approve_req.check_out_time,
             expected_return=rental_req.requested_end_date,
             rental_status="active"
         )

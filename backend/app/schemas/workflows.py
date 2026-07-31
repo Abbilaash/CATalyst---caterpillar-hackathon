@@ -45,6 +45,8 @@ class RentalRequestResponse(BaseModel):
 class RentalApproveRequest(BaseModel):
     request_id: str
     asset_ids: List[str] # Dealer selects specific assets to fulfill the request
+    check_in_time: Optional[datetime] = None
+    check_out_time: Optional[datetime] = None
 
 class RentalResponse(BaseModel):
     rental_id: str

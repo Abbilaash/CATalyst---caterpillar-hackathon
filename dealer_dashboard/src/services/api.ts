@@ -92,3 +92,14 @@ export const markAllAlertsRead = async (role = 'dealer') => {
   const response = await api.patch(`/alerts/read-all?role=${role}`);
   return response.data;
 };
+
+// ─── Dealer Requests API ───
+export const fetchRequests = async () => {
+  const response = await api.get('/dealer/requests');
+  return response.data;
+};
+
+export const allocateMachinery = async (payload: { request_id: string; asset_ids: string[]; check_in_time?: string; check_out_time?: string }) => {
+  const response = await api.post('/dealer/allocate', payload);
+  return response.data;
+};

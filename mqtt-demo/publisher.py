@@ -7,9 +7,9 @@ from http.server import HTTPServer, BaseHTTPRequestHandler
 import threading
 
 # ==========================================
-# MQTT Configuration (Local Broker)
+# MQTT Configuration (Public Broker)
 # ==========================================
-BROKER = "localhost"
+BROKER = "test.mosquitto.org"
 PORT = 1883
 CONTROL_PORT = 8086
 CLIENT_ID = f"cat-publisher-{random.randint(1000, 9999)}"
@@ -223,14 +223,46 @@ class CaterpillarMachine:
         self.fuel_level_percent = round((self.fuel_remaining_liters / self.fuel_capacity) * 100, 2)
         return True, added
 
+import requests
+
 # Persistent Fleet Map
-fleet_map = {
-    "CAT-EXC-349": CaterpillarMachine("CAT-EXC-349", "CAT 349 Hydraulic Excavator", "349 UHD", "Hydraulic Excavator", 350.0, 1245.80, 310.0, 40.7128, -74.0060),
-    "CAT-DOZ-D11": CaterpillarMachine("CAT-DOZ-D11", "CAT D11 Mining Dozer", "D11 Heavy Tractor", "Track-Type Tractor", 500.0, 3820.50, 430.0, 40.7135, -74.0082),
-    "CAT-TRK-797F": CaterpillarMachine("CAT-TRK-797F", "CAT 797F Mining Truck", "797F Off-Highway", "Off-Highway Truck", 700.0, 5100.25, 600.0, 40.7112, -74.0041),
-}
+fleet_map = {}
+
+def load_fleet_from_api():
+    try:
+        response = requests.get("http://localhost:8000/api/v1/equipment", timeout=5)
+        response.raise_for_status()
+        equipment_list = response.json()
+        
+        # Pick 3 valid assets for the demo simulation
+        for eq in equipment_list[:3]:
+            fleet_map[eq["id"]] = CaterpillarMachine(
+                asset_id=eq["id"],
+                name=eq["name"],
+                model=eq["model"],
+                equipment_type=eq["category"],
+                fuel_capacity=350.0,
+                initial_hours=1245.80,
+                initial_fuel=310.0,
+                start_lat=40.7128,
+                start_lon=-74.0060
+            )
+        print(f"[INIT] Loaded {len(fleet_map)} real machines from backend API.", flush=True)
+    except Exception as e:
+        print(f"[WARNING] Failed to load fleet from API: {e}. Falling back to hardcoded ids.", flush=True)
+        fleet_map["CAT-EXC-349"] = CaterpillarMachine("CAT-EXC-349", "CAT 349", "349", "Excavator", 350.0, 1245.8, 310.0, 40.71, -74.0)
+
+load_fleet_from_api()
 
 active_asset_id = None
+if fleet_map:
+    active_asset_id = list(fleet_map.keys())[0]
+    machine = fleet_map[active_asset_id]
+    machine.engine_status = "ON"
+    machine.ignition_status = "ON"
+    machine.operating_mode = "Idle"
+    machine.engine_rpm = 700
+    print(f"[DEMO] Auto-started machine {active_asset_id} to stream telemetry immediately.", flush=True)
 
 class PublisherControlHandler(BaseHTTPRequestHandler):
     def do_OPTIONS(self):
@@ -265,8 +297,8 @@ class PublisherControlHandler(BaseHTTPRequestHandler):
                     machine.operating_mode = "Idle"
                     machine.engine_rpm = 700
 
-                    # Publish MQTT event cat/{asset_id}/events
-                    event_topic = f"cat/{asset_id}/events"
+                    # Publish MQTT event catalyst/surya/{asset_id}/events
+                    event_topic = f"catalyst/surya/{asset_id}/events"
                     event_payload = {
                         "asset_id": asset_id,
                         "event_type": "ENGINE_STARTED",
@@ -284,8 +316,8 @@ class PublisherControlHandler(BaseHTTPRequestHandler):
                     if active_asset_id == asset_id:
                         active_asset_id = None
 
-                    # Publish MQTT event cat/{asset_id}/events
-                    event_topic = f"cat/{asset_id}/events"
+                    # Publish MQTT event catalyst/surya/{asset_id}/events
+                    event_topic = f"catalyst/surya/{asset_id}/events"
                     event_payload = {
                         "asset_id": asset_id,
                         "event_type": "ENGINE_STOPPED",
@@ -298,8 +330,8 @@ class PublisherControlHandler(BaseHTTPRequestHandler):
                     liters = float(req.get('amount', 0.0))
                     success, result = machine.refuel(liters)
                     if success:
-                        # Publish FUEL_ADDED MQTT event to cat/{asset_id}/events
-                        event_topic = f"cat/{asset_id}/events"
+                        # Publish FUEL_ADDED MQTT event to catalyst/surya/{asset_id}/events
+                        event_topic = f"catalyst/surya/{asset_id}/events"
                         event_payload = {
                             "asset_id": asset_id,
                             "event_type": "FUEL_ADDED",
@@ -332,14 +364,14 @@ def start_control_server():
 
 threading.Thread(target=start_control_server, daemon=True).start()
 
-# Main Telemetry Loop: Publishes ONLY for the single active machine to cat/{asset_id}/telemetry
+# Main Telemetry Loop: Publishes ONLY for the single active machine to catalyst/surya/{asset_id}/telemetry
 try:
     while True:
         if active_asset_id and active_asset_id in fleet_map:
             machine = fleet_map[active_asset_id]
             if machine.engine_status == "ON":
                 telemetry_data = machine.update_tick(dt=2)
-                telemetry_topic = f"cat/{machine.asset_id}/telemetry"
+                telemetry_topic = f"catalyst/surya/{machine.asset_id}/telemetry"
                 result = client.publish(telemetry_topic, json.dumps(telemetry_data))
                 
                 if result[0] == 0:

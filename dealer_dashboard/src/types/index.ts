@@ -10,4 +10,5 @@ export interface Equipment {
   rentalRemainingDays: number;
   status: 'working' | 'idle' | 'critical' | 'maintenance' | 'transit' | string;
   image?: string;
+  telemetry?: Record<string, any>;
 }

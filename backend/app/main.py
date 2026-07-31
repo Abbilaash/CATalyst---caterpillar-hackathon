@@ -14,9 +14,10 @@ from app.db.mongodb import connect_to_mongo, close_mongo_connection
 from beanie import init_beanie
 from app.db.mongodb import get_database
 from app.models.mongo.users import User, Operator, SiteManager, Dealer, Notification, LoginHistory
-from app.api.v1 import auth, site_manager, dealer, operator, equipment, analytics, ai, sites, operators, live, alerts, inspection
+from app.api.v1 import auth, site_manager, dealer, operator, equipment, analytics, ai, sites, operators, live, alerts, inspection, websockets
 from app.db.postgres import engine
 from sqlalchemy import text
+from app.services.mqtt_subscriber import start_mqtt_client
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
@@ -35,6 +36,8 @@ async def lifespan(app: FastAPI):
     print("*" * 50)
     print("SUCCESS: Connected to PostgreSQL Database (Supabase)!")
     print("*" * 50)
+    
+    mqtt_task = asyncio.create_task(start_mqtt_client())
     
     yield
     # Shutdown
@@ -70,3 +73,4 @@ app.include_router(operators.router, prefix="/api/v1/dashboard-operators", tags=
 app.include_router(live.router, prefix="/api/v1/live", tags=["Dashboard - Live"])
 app.include_router(alerts.router, prefix="/api/v1/alerts", tags=["alerts"])
 app.include_router(inspection.router, prefix="/api/v1/inspection", tags=["inspection"])
+app.include_router(websockets.router, prefix="/api/v1/ws", tags=["websockets"])

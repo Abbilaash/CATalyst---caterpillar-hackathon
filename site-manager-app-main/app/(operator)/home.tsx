@@ -24,6 +24,7 @@ export default function OperatorHome() {
   const [profile, setProfile] = useState<any>(null);
   const [tasks, setTasks] = useState<any[]>([]);
   const [notifications, setNotifications] = useState<any[]>([]);
+  const [telemetry, setTelemetry] = useState<any>(null);
 
   useEffect(() => {
     const load = async () => {
@@ -68,6 +69,31 @@ export default function OperatorHome() {
   const todayProgress = profile ? Math.min(100, Math.round((tasks.filter((task) => task.status === 'completed').length / Math.max(tasks.length, 1)) * 100)) : 0;
   const workingHours = profile ? `${Math.max(0, Math.round(profile.hoursWorked))}h` : '0h';
   const inProgressTask = tasks.find((task) => task.status === 'in_progress');
+  const activeMachineId = inProgressTask?.machineId || tasks?.[0]?.machineId || 'eq-2';
+
+  useEffect(() => {
+    if (!activeMachineId) return;
+    
+    // Convert http/https to ws/wss
+    const wsBaseUrl = API_BASE_URL.replace(/^http/, 'ws');
+    const wsUrl = `${wsBaseUrl}/api/v1/ws/telemetry/${activeMachineId}`;
+    const ws = new WebSocket(wsUrl);
+
+    ws.onmessage = (e) => {
+      try {
+        const data = JSON.parse(e.data);
+        setTelemetry(data);
+        
+        // Simple client-side alert handling
+        if (data.engine_temperature > 100) {
+           // We can push this to a local toast or just use standard RN alert if imported, 
+           // but we'll just log it for the demo, or we can rely on AlertBanner
+        }
+      } catch (err) {}
+    };
+
+    return () => ws.close();
+  }, [inProgressTask?.machineId]);
 
   return (
     <Screen>
@@ -158,6 +184,19 @@ export default function OperatorHome() {
               </View>
             </Card>
           </View>
+
+          {activeMachineId && (
+            <View style={styles.section}>
+              <SectionTitle title="System Vitals (Live)" />
+              <Card>
+                <View style={styles.statRow}>
+                  <MiniStat Icon={Cpu} label="Engine RPM" value={telemetry?.engine_rpm?.toString() || '--'} />
+                  <MiniStat Icon={AlertTriangle} label="Temp" value={telemetry?.engine_temperature ? `${telemetry.engine_temperature}°C` : '--'} />
+                  <MiniStat Icon={TrendingUp} label="Fuel" value={telemetry?.fuel_level_percent ? `${telemetry.fuel_level_percent.toFixed(1)}%` : '--'} />
+                </View>
+              </Card>
+            </View>
+          )}
 
           <View style={styles.section}>
             <SectionTitle title="Quick Actions" />
