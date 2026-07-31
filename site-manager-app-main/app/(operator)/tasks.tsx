@@ -1,19 +1,17 @@
-import { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, Pressable } from 'react-native';
-import {
-  Play, Pause, Check, Clock, Cpu, ListChecks, Filter,
-} from 'lucide-react-native';
+import { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, Pressable, Modal, TextInput, Alert, ActivityIndicator } from 'react-native';
+import { Play, Pause, Check, Clock, Cpu, ListChecks, X, QrCode } from 'lucide-react-native';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { OperatorShell } from '@/components/OperatorShell';
 import { AppHeader } from '@/components/AppHeader';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
-import { Fab } from '@/components/Fab';
 import { EmptyState } from '@/components/States';
-import { CURRENT_TASKS, assetByMachineId } from '@/data/mock';
 import { priorityColor, prioritySoftColor, priorityLabel, taskStatusLabel, taskStatusColor } from '@/theme/status';
-import type { Task, TaskStatus } from '@/types';
+import type { TaskStatus } from '@/types';
+import { useSession } from '@/context/SessionContext';
+import { API_BASE_URL } from '@/constant/api';
 
 const FILTERS: { key: TaskStatus | 'all'; label: string }[] = [
   { key: 'all', label: 'All' },
@@ -24,14 +22,112 @@ const FILTERS: { key: TaskStatus | 'all'; label: string }[] = [
 ];
 
 export default function OperatorTasks() {
-  const [tasks, setTasks] = useState<Task[]>(CURRENT_TASKS);
+  const { managerId } = useSession();
+  const [tasks, setTasks] = useState<any[]>([]);
   const [filter, setFilter] = useState<TaskStatus | 'all'>('all');
+  const [loading, setLoading] = useState(true);
+  const [scanModalVisible, setScanModalVisible] = useState(false);
+  const [startingTask, setStartingTask] = useState<any>(null);
+  const [qrCodeInput, setQrCodeInput] = useState('');
+  const [simulatingScan, setSimulatingScan] = useState(false);
+
+  const loadTasks = async () => {
+    setLoading(true);
+    try {
+      const resolvedOpId = managerId || 'operator-01';
+      const res = await fetch(`${API_BASE_URL}/api/v1/operator/${resolvedOpId}/tasks`);
+      if (res.ok) {
+        const data = await res.json();
+        const sorted = (data || []).sort((a: any, b: any) => {
+          if (a.status === 'completed' && b.status !== 'completed') return 1;
+          if (a.status !== 'completed' && b.status === 'completed') return -1;
+          return 0;
+        });
+        setTasks(sorted);
+      }
+    } catch (e) {
+      console.warn('Failed to fetch tasks:', e);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadTasks();
+  }, [managerId]);
+
+  const updateStatus = async (id: string, status: string) => {
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/operator/tasks/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status }),
+      });
+      if (res.ok) {
+        loadTasks();
+      } else {
+        Alert.alert('Error', 'Failed to update status on server.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Connection error.');
+    }
+  };
+
+  const handleStartPress = (task: any) => {
+    setStartingTask(task);
+    setQrCodeInput('');
+    setScanModalVisible(true);
+  };
+
+  const handleSimulateScan = () => {
+    if (!startingTask) return;
+    setSimulatingScan(true);
+    setTimeout(() => {
+      setQrCodeInput(startingTask.qrCode || '');
+      setSimulatingScan(false);
+    }, 1200);
+  };
+
+  const handleVerifyAndStart = async () => {
+    if (!startingTask) return;
+    if (qrCodeInput.trim() !== (startingTask.qrCode || '').trim()) {
+      Alert.alert('Authentication Failure', 'The scanned QR code does not match the assigned asset for this task.');
+      return;
+    }
+
+    try {
+      const res = await fetch(`${API_BASE_URL}/api/v1/operator/tasks/${startingTask.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: 'in_progress' }),
+      });
+      if (res.ok) {
+        Alert.alert('Success', 'Asset verified. Task is now in progress.');
+        setScanModalVisible(false);
+        setStartingTask(null);
+        setQrCodeInput('');
+        loadTasks();
+      } else {
+        Alert.alert('Error', 'Failed to update task status.');
+      }
+    } catch (e) {
+      Alert.alert('Error', 'Connection error.');
+    }
+  };
 
   const filtered = filter === 'all' ? tasks : tasks.filter((t) => t.status === filter);
 
-  const updateStatus = (id: string, status: TaskStatus) => {
-    setTasks((prev) => prev.map((t) => (t.id === id ? { ...t, status } : t)));
-  };
+  if (loading) {
+    return (
+      <Screen>
+        <OperatorShell active="tasks">
+          <View style={{ flex: 1, justifyContent: 'center', alignItems: 'center' }}>
+            <ActivityIndicator size="large" color={PALETTE.catYellow} />
+          </View>
+        </OperatorShell>
+      </Screen>
+    );
+  }
 
   return (
     <Screen>
@@ -41,11 +137,7 @@ export default function OperatorTasks() {
 
           <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.filterRow}>
             {FILTERS.map((f) => (
-              <Pressable
-                key={f.key}
-                onPress={() => setFilter(f.key)}
-                style={({ pressed }) => [styles.filterChip, filter === f.key && styles.filterChipActive, pressed && styles.pressed]}
-              >
+              <Pressable key={f.key} onPress={() => setFilter(f.key)} style={({ pressed }) => [styles.filterChip, filter === f.key && styles.filterChipActive, pressed && styles.pressed]}>
                 <Text style={[styles.filterLabel, filter === f.key && styles.filterLabelActive]}>{f.label}</Text>
               </Pressable>
             ))}
@@ -59,7 +151,7 @@ export default function OperatorTasks() {
                 <TaskCard
                   key={task.id}
                   task={task}
-                  onStart={() => updateStatus(task.id, 'in_progress')}
+                  onStart={() => handleStartPress(task)}
                   onPause={() => updateStatus(task.id, 'paused')}
                   onComplete={() => updateStatus(task.id, 'completed')}
                 />
@@ -67,23 +159,44 @@ export default function OperatorTasks() {
             </View>
           )}
         </ScrollView>
+
+        <Modal animationType="slide" transparent visible={scanModalVisible} onRequestClose={() => setScanModalVisible(false)}>
+          <View style={styles.modalOverlay}>
+            <View style={[styles.modalContent, { maxHeight: 420 }]}> 
+              <View style={styles.modalHeader}>
+                <Text style={styles.modalTitle}>Verify Asset QR</Text>
+                <Pressable onPress={() => { setScanModalVisible(false); setStartingTask(null); }}>
+                  <X size={20} color={PALETTE.textSecondary} />
+                </Pressable>
+              </View>
+
+              {startingTask && (
+                <View style={[styles.form, { gap: SPACING.md, marginTop: SPACING.lg }]}> 
+                  <Text style={{ fontSize: 13, color: PALETTE.textSecondary, textAlign: 'center' }}>
+                    Scan the asset QR code linked to <Text style={{ color: PALETTE.textPrimary, fontFamily: FONT.bold }}>{startingTask.machineName}</Text> before starting this task.
+                  </Text>
+                  <View style={[styles.scannerBox, simulatingScan && { borderColor: PALETTE.catYellow }]}> 
+                    <QrCode size={56} color={simulatingScan ? PALETTE.catYellow : PALETTE.textTertiary} opacity={simulatingScan ? 1.0 : 0.6} />
+                    {simulatingScan && <ActivityIndicator size="small" color={PALETTE.catYellow} style={{ marginTop: 8 }} />}
+                  </View>
+                  <Pressable onPress={handleSimulateScan} style={[styles.actBtn, { backgroundColor: PALETTE.surfaceOverlay, borderColor: PALETTE.borderStrong, height: 48 }]}> 
+                    <Text style={{ color: PALETTE.catYellow, fontFamily: FONT.bold, fontSize: 11 }}>Simulate Scan</Text>
+                  </Pressable>
+                  <TextInput style={styles.textInput} value={qrCodeInput} onChangeText={setQrCodeInput} placeholder="Scanned QR code value" placeholderTextColor={PALETTE.textTertiary} autoCapitalize="characters" />
+                  <Pressable style={styles.solveBtn} onPress={handleVerifyAndStart}>
+                    <Text style={styles.solveBtnText}>Verify & Start Working</Text>
+                  </Pressable>
+                </View>
+              )}
+            </View>
+          </View>
+        </Modal>
       </OperatorShell>
     </Screen>
   );
 }
 
-function TaskCard({
-  task,
-  onStart,
-  onPause,
-  onComplete,
-}: {
-  task: Task;
-  onStart: () => void;
-  onPause: () => void;
-  onComplete: () => void;
-}) {
-  const asset = assetByMachineId(task.machineId);
+function TaskCard({ task, onStart, onPause, onComplete }: { task: any; onStart: () => void; onPause: () => void; onComplete: () => void }) {
   const accent = priorityColor(task.priority);
   const isCompleted = task.status === 'completed';
   const isActive = task.status === 'in_progress';
@@ -95,8 +208,8 @@ function TaskCard({
         <View style={{ flex: 1, gap: 6 }}>
           <Text style={styles.taskName} numberOfLines={2}>{task.name}</Text>
           <View style={styles.taskMetaRow}>
-            <Cpu size={13} color={PALETTE.textTertiary} strokeWidth={2} />
-            <Text style={styles.taskMachine}>{asset?.name ?? task.machineId}</Text>
+            <Cpu size={13} color={PALETTE.textSecondary} strokeWidth={2} />
+            <Text style={styles.taskMachine}>{task.machineName} ({task.machineId})</Text>
           </View>
         </View>
         <Chip label={priorityLabel(task.priority)} color={accent} soft={prioritySoftColor(task.priority)} dot />
@@ -110,18 +223,10 @@ function TaskCard({
         </View>
       </View>
 
-
-
       <View style={styles.taskActions}>
-        {!isCompleted && !isActive && (
-          <ActionButton icon={<Play size={15} color={PALETTE.textInverse} strokeWidth={2.6} />} label="Start" solid onPress={onStart} />
-        )}
-        {isActive && (
-          <ActionButton icon={<Pause size={15} color={PALETTE.textPrimary} strokeWidth={2.6} />} label="Pause" outline onPress={onPause} />
-        )}
-        {!isCompleted && (
-          <ActionButton icon={<Check size={15} color={PALETTE.success} strokeWidth={2.6} />} label="Complete" outline accent={PALETTE.success} onPress={onComplete} disabled={!isActive && !isPaused} />
-        )}
+        {!isCompleted && !isActive && <ActionButton icon={<Play size={15} color={PALETTE.textInverse} strokeWidth={2.6} />} label="Start" solid onPress={onStart} />}
+        {isActive && <ActionButton icon={<Pause size={15} color={PALETTE.textPrimary} strokeWidth={2.6} />} label="Pause" outline onPress={onPause} />}
+        {!isCompleted && <ActionButton icon={<Check size={15} color={PALETTE.success} strokeWidth={2.6} />} label="Complete" outline accent={PALETTE.success} onPress={onComplete} disabled={!isActive && !isPaused} />}
       </View>
     </Card>
   );
@@ -155,10 +260,18 @@ const styles = StyleSheet.create({
   taskChips: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm },
   dueChip: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: PALETTE.surfaceOverlay, borderRadius: RADIUS.sm, paddingVertical: 4, paddingHorizontal: SPACING.sm },
   dueText: { fontFamily: FONT.regular, fontSize: 11, color: PALETTE.textSecondary },
-  progressWrap: { paddingTop: SPACING.xs, borderTopWidth: StyleSheet.hairlineWidth, borderTopColor: PALETTE.border, marginTop: SPACING.xs },
   taskActions: { flexDirection: 'row', gap: SPACING.sm },
   actBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6, height: 44, borderRadius: RADIUS.md, borderWidth: 1 },
   actLabel: { fontFamily: FONT.semibold, fontSize: 13 },
   actDisabled: { opacity: 0.35 },
   pressed: { opacity: 0.85, transform: [{ scale: 0.97 }] },
+  modalOverlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.7)', justifyContent: 'flex-end' },
+  modalContent: { backgroundColor: PALETTE.bg, borderTopLeftRadius: RADIUS.lg, borderTopRightRadius: RADIUS.lg, padding: SPACING.lg, maxHeight: '90%' },
+  modalHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderBottomWidth: 1, borderColor: PALETTE.border, paddingBottom: SPACING.md },
+  modalTitle: { fontFamily: FONT.bold, fontSize: 18, color: PALETTE.textPrimary },
+  form: { gap: SPACING.md, marginTop: SPACING.md, paddingBottom: SPACING.xl },
+  textInput: { height: 48, borderRadius: RADIUS.md, backgroundColor: PALETTE.surface, borderWidth: 1, borderColor: PALETTE.border, paddingHorizontal: SPACING.md, color: PALETTE.textPrimary, fontFamily: FONT.regular },
+  solveBtn: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, backgroundColor: PALETTE.catYellow, height: 50, borderRadius: RADIUS.md, marginTop: SPACING.md },
+  solveBtnText: { fontFamily: FONT.bold, fontSize: 14, color: PALETTE.bg },
+  scannerBox: { height: 120, backgroundColor: '#0C0E10', borderRadius: RADIUS.md, borderWidth: 1.5, borderColor: PALETTE.border, alignItems: 'center', justifyContent: 'center', marginVertical: SPACING.xs },
 });

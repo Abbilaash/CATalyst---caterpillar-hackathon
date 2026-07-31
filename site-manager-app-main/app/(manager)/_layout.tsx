@@ -7,7 +7,7 @@ export default function ManagerLayout() {
       <Stack.Screen name="assets" />
       <Stack.Screen name="scheduling" />
       <Stack.Screen name="operations" />
-      <Stack.Screen name="profile" />
+      <Stack.Screen name="analytics" />
     </Stack>
   );
 }

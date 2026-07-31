@@ -4,9 +4,7 @@ export default function OperatorLayout() {
   return (
     <Stack screenOptions={{ headerShown: false, contentStyle: { backgroundColor: '#111315' } }}>
       <Stack.Screen name="home" />
-      <Stack.Screen name="scan" />
       <Stack.Screen name="tasks" />
-      <Stack.Screen name="profile" />
     </Stack>
   );
 }

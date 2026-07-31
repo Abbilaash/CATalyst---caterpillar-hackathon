@@ -105,6 +105,8 @@ export default function ManagerOperations() {
     setReassign(null);
   };
 
+  const visibleOperations = operations.filter((op) => !['completed', 'cancelled'].includes(op.status));
+
   if (loading) {
     return (
       <Screen>
@@ -120,19 +122,19 @@ export default function ManagerOperations() {
     <Screen>
       <ManagerShell active="operations">
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
-          <AppHeader title="Operations" subtitle={`${operations.length} total activities`} onBell={() => {}} />
+          <AppHeader title="Operations" subtitle={`${visibleOperations.length} active activities`} onBell={() => {}} />
 
           <View style={styles.summaryBar}>
-            <SummaryPill label="In Progress" value={operations.filter((o) => o.status === 'in_progress').length} color={PALETTE.info} />
-            <SummaryPill label="Paused" value={operations.filter((o) => o.status === 'paused').length} color={PALETTE.warning} />
-            <SummaryPill label="Completed" value={operations.filter((o) => o.status === 'completed').length} color={PALETTE.success} />
+            <SummaryPill label="In Progress" value={visibleOperations.filter((o) => o.status === 'in_progress').length} color={PALETTE.info} />
+            <SummaryPill label="Paused" value={visibleOperations.filter((o) => o.status === 'paused').length} color={PALETTE.warning} />
+            <SummaryPill label="Scheduled" value={visibleOperations.filter((o) => o.status === 'scheduled').length} color={PALETTE.success} />
           </View>
 
-          {operations.length === 0 ? (
+          {visibleOperations.length === 0 ? (
             <EmptyState Icon={Activity} />
           ) : (
             <View style={styles.list}>
-              {operations.map((op) => (
+              {visibleOperations.map((op) => (
                 <OperationCard
                   key={op.id}
                   op={op}
@@ -204,16 +206,6 @@ function OperationCard({ op, onView, onReassign, onComplete, onDelete }: { op: a
         </View>
       </View>
 
-      <View style={styles.progressSection}>
-        <View style={styles.progressHeader}>
-          <Text style={styles.progressLabel}>Progress</Text>
-          <Text style={[styles.progressValue, { color: isCompleted ? PALETTE.success : accent }]}>{op.progress}%</Text>
-        </View>
-        <View style={styles.progressTrack}>
-          <View style={[styles.progressFill, { width: `${op.progress}%`, backgroundColor: isCompleted ? PALETTE.success : accent }]} />
-        </View>
-      </View>
-
       <View style={styles.opActions}>
         <OpButton icon={<Eye size={15} color={PALETTE.textPrimary} strokeWidth={2.2} />} label="Details" outline onPress={onView} />
         <OpButton icon={<UserCog size={15} color={PALETTE.info} strokeWidth={2.2} />} label="Reassign" outline accent={PALETTE.info} onPress={onReassign} disabled={isCompleted} />
@@ -269,15 +261,6 @@ function DetailSheet({ op, onClose }: { op: any; onClose: () => void }) {
             <Text style={styles.sheetOperatorName}>{op.operatorName || 'Unassigned'}</Text>
           </View>
         </View>
-        <View style={styles.sheetProgress}>
-          <View style={styles.progressHeader}>
-            <Text style={styles.progressLabel}>Completion</Text>
-            <Text style={[styles.progressValue, { color: op.status === 'completed' ? PALETTE.success : priorityColor(op.priority) }]}>{op.progress}%</Text>
-          </View>
-          <View style={styles.progressTrack}>
-            <View style={[styles.progressFill, { width: `${op.progress}%`, backgroundColor: op.status === 'completed' ? PALETTE.success : priorityColor(op.priority) }]} />
-          </View>
-        </View>
         <View style={styles.sheetInfoRow}>
           <View style={styles.sheetInfoBox}>
             <Clock size={16} color={PALETTE.catYellow} strokeWidth={2.2} />
@@ -308,12 +291,6 @@ const styles = StyleSheet.create({
   opOperatorName: { flex: 1, fontFamily: FONT.semibold, fontSize: 13, color: PALETTE.textPrimary },
   dueChip: { flexDirection: 'row', alignItems: 'center', gap: 4, backgroundColor: PALETTE.surfaceOverlay, borderRadius: RADIUS.sm, paddingVertical: 4, paddingHorizontal: SPACING.sm },
   dueText: { fontFamily: FONT.regular, fontSize: 11, color: PALETTE.textSecondary },
-  progressSection: { gap: SPACING.sm },
-  progressHeader: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
-  progressLabel: { fontFamily: FONT.medium, fontSize: 12, color: PALETTE.textTertiary },
-  progressValue: { fontFamily: FONT.bold, fontSize: 13 },
-  progressTrack: { height: 8, backgroundColor: PALETTE.surfaceOverlay, borderRadius: 999, overflow: 'hidden' },
-  progressFill: { height: '100%', borderRadius: 999 },
   opActions: { flexDirection: 'row', gap: 6 },
   opBtn: { flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 4, height: 40, borderRadius: RADIUS.md, borderWidth: 1, backgroundColor: 'transparent' },
   opBtnLabel: { fontFamily: FONT.semibold, fontSize: 11 },
@@ -331,7 +308,6 @@ const styles = StyleSheet.create({
   sheetOperatorRow: { flexDirection: 'row', alignItems: 'center', gap: SPACING.md, backgroundColor: PALETTE.surfaceOverlay, borderRadius: RADIUS.lg, padding: SPACING.lg },
   sheetOperatorLabel: { fontFamily: FONT.regular, fontSize: 12, color: PALETTE.textTertiary },
   sheetOperatorName: { fontFamily: FONT.semibold, fontSize: 15, color: PALETTE.textPrimary, marginTop: 2 },
-  sheetProgress: { gap: SPACING.sm },
   sheetInfoRow: { gap: SPACING.md },
   sheetInfoBox: { flexDirection: 'row', alignItems: 'center', gap: SPACING.sm, backgroundColor: PALETTE.catYellowSoft, borderRadius: RADIUS.md, borderWidth: 1, borderColor: PALETTE.catYellowBorder, padding: SPACING.md },
   sheetInfoLabel: { fontFamily: FONT.regular, fontSize: 12, color: PALETTE.textTertiary },
