@@ -40,6 +40,7 @@ export interface Operator {
   completedTasks: number;
   hoursWorked: number;
   achievements: string[];
+  certified_equipment_types?: string[];
 }
 
 export interface Asset {

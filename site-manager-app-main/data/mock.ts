@@ -29,6 +29,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 142,
     hoursWorked: 2840,
     achievements: ['Safety Streak 90 Days', 'Operator of the Month', 'Zero Idle Award'],
+    certified_equipment_types: ['Excavator', 'Dozer', 'Loader'],
   },
   {
     id: 'op-02',
@@ -45,6 +46,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 211,
     hoursWorked: 4120,
     achievements: ['Master Operator', 'Safety Streak 180 Days', 'Top Performer 2024'],
+    certified_equipment_types: ['Dozer', 'Grader'],
   },
   {
     id: 'op-03',
@@ -61,6 +63,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 88,
     hoursWorked: 1560,
     achievements: ['Fast Learner', 'Safety First'],
+    certified_equipment_types: ['Loader', 'Compactor'],
   },
   {
     id: 'op-04',
@@ -77,6 +80,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 167,
     hoursWorked: 3210,
     achievements: ['Operator of the Quarter', 'Safety Streak 120 Days'],
+    certified_equipment_types: ['Loader', 'Excavator'],
   },
   {
     id: 'op-05',
@@ -93,6 +97,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 298,
     hoursWorked: 5980,
     achievements: ['Veteran Operator', 'Safety Streak 365 Days', 'Mentor Badge'],
+    certified_equipment_types: ['Grader', 'Scraper'],
   },
   {
     id: 'op-06',
@@ -109,6 +114,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 113,
     hoursWorked: 2180,
     achievements: ['Rising Star', 'Safety Streak 60 Days'],
+    certified_equipment_types: ['Excavator'],
   },
   {
     id: 'op-07',
@@ -125,6 +131,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 154,
     hoursWorked: 2940,
     achievements: ['Reliability Award', 'Safety Streak 90 Days'],
+    certified_equipment_types: ['Loader', 'Truck'],
   },
   {
     id: 'op-08',
@@ -141,6 +148,7 @@ export const OPERATORS: Operator[] = [
     completedTasks: 245,
     hoursWorked: 4810,
     achievements: ['Master Operator', 'Safety Streak 240 Days', 'Zero Incident Year'],
+    certified_equipment_types: ['Dozer', 'Compactor'],
   },
 ];
 

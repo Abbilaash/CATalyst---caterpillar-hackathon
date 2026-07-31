@@ -36,15 +36,19 @@ async def allocate_machinery(approve_req: RentalApproveRequest, db: AsyncSession
     rentals = []
     # 3. Create rentals for allocated assets
     for asset_id in approve_req.asset_ids:
-        # Mark asset as rented
+        # Mark asset as rented (status becomes idle until assigned a task, store assigned manager)
         await db.execute(
-            update(Asset).where(Asset.asset_id == asset_id).values(current_status="rented", current_site_id=rental_req.site_id)
+            update(Asset).where(Asset.asset_id == asset_id).values(
+                current_status="idle",
+                current_site_id=rental_req.site_id,
+                assigned_site_manager=rental_req.manager_id
+            )
         )
         
         # Create rental record
         new_rental = Rental(
             asset_id=asset_id,
-            site_id=rental_req.site_id,
+            assigned_site_manager=rental_req.manager_id,
             check_in_time=datetime.utcnow(),
             expected_return=rental_req.requested_end_date,
             rental_status="active"

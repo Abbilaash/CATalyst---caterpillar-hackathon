@@ -5,7 +5,7 @@ import {
   PackagePlus, FileText, CheckCircle2, AlertTriangle, CalendarClock,
   ChevronRight,
 } from 'lucide-react-native';
-import { ComponentType } from 'react';
+import { ComponentType, useState, useEffect } from 'react';
 import { PALETTE, RADIUS, SPACING, SHADOW, FONT } from '@/theme/tokens';
 import { Screen } from '@/components/Screen';
 import { ManagerShell } from '@/components/ManagerShell';
@@ -13,9 +13,10 @@ import { AppHeader } from '@/components/AppHeader';
 import { Card } from '@/components/Card';
 import { Chip } from '@/components/Chip';
 import { Avatar } from '@/components/Avatar';
-import { useState, useEffect } from 'react';
+import { CURRENT_MANAGER, DASHBOARD_STATS, ACTIVITIES } from '@/data/mock';
+import { useSession } from '@/context/SessionContext';
+import { API_BASE_URL } from '@/constant/api';
 import { Platform } from 'react-native';
-import { CURRENT_MANAGER, DASHBOARD_STATS } from '@/data/mock';
 import { AlertBanner } from '@/components/AlertBanner';
 
 type IconType = ComponentType<{ size?: number; color?: string; strokeWidth?: number }>;
@@ -27,15 +28,15 @@ type SummaryCard = {
   accent: string;
 };
 
-const SUMMARY: SummaryCard[] = [
-  { Icon: Boxes, label: 'Total Assets', value: DASHBOARD_STATS.totalAssets, accent: PALETTE.catYellow },
-  { Icon: KeyRound, label: 'Active Rentals', value: DASHBOARD_STATS.activeRentals, accent: PALETTE.success },
-  { Icon: Cog, label: 'Machines Working', value: DASHBOARD_STATS.machinesWorking, accent: PALETTE.info },
-  { Icon: Moon, label: 'Machines Idle', value: DASHBOARD_STATS.machinesIdle, accent: PALETTE.warning },
-  { Icon: Users, label: 'Operators On Duty', value: DASHBOARD_STATS.operatorsOnDuty, accent: PALETTE.catYellow },
-  { Icon: Activity, label: 'Running Operations', value: DASHBOARD_STATS.runningOperations, accent: PALETTE.info },
-  { Icon: Wrench, label: 'Maintenance Due', value: DASHBOARD_STATS.maintenanceDue, accent: PALETTE.warning },
-  { Icon: ShieldAlert, label: 'Safety Alerts', value: DASHBOARD_STATS.safetyAlerts, accent: PALETTE.error },
+const SUMMARY = (stats: any): SummaryCard[] => [
+  { Icon: Boxes, label: 'Total Assets', value: stats.totalAssets, accent: PALETTE.catYellow },
+  { Icon: KeyRound, label: 'Active Rentals', value: stats.activeRentals, accent: PALETTE.success },
+  { Icon: Cog, label: 'Machines Working', value: stats.machinesWorking, accent: PALETTE.info },
+  { Icon: Moon, label: 'Machines Idle', value: stats.machinesIdle, accent: PALETTE.warning },
+  { Icon: Users, label: 'Operators On Duty', value: stats.operatorsOnDuty, accent: PALETTE.catYellow },
+  { Icon: Activity, label: 'Running Operations', value: stats.runningOperations, accent: PALETTE.info },
+  { Icon: Wrench, label: 'Maintenance Due', value: stats.maintenanceDue, accent: PALETTE.warning },
+  { Icon: ShieldAlert, label: 'Safety Alerts', value: stats.safetyAlerts, accent: PALETTE.error },
 ];
 
 const ACTIVITY_ICONS: Record<string, { Icon: IconType; accent: string }> = {
@@ -48,53 +49,59 @@ const ACTIVITY_ICONS: Record<string, { Icon: IconType; accent: string }> = {
 
 export default function ManagerDashboard() {
   const router = useRouter();
-  const [activities, setActivities] = useState<any[]>([]);
+  const { managerId } = useSession();
+  const [stats, setStats] = useState(DASHBOARD_STATS);
+  const [activities, setActivities] = useState(ACTIVITIES);
+  const [managerInfo, setManagerInfo] = useState(CURRENT_MANAGER);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    const fetchActivities = async () => {
+    async function fetchDashboard() {
       try {
-        const apiBase = Platform.OS === 'android' ? 'http://10.0.2.2:8000' : 'http://localhost:8000';
-        const response = await fetch(`${apiBase}/api/v1/alerts?role=manager`);
-        const data = await response.json();
-        
-        const mapped = (data.alerts || []).map((a: any) => ({
-          id: a.id,
-          type: a.severity === 'critical' || a.severity === 'high' ? 'issue_reported' 
-              : a.type === 'maintenance_due' ? 'maintenance_scheduled' 
-              : 'assigned',
-          title: a.title,
-          detail: a.message,
-          timestamp: new Date(a.createdAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })
-        }));
-        setActivities(mapped);
-      } catch (e) {
-        console.log('Failed to fetch manager activities', e);
+        const resolvedManagerId = managerId || 'mgr-01';
+        const response = await fetch(`${API_BASE_URL}/api/v1/manager/dashboard/${resolvedManagerId}`);
+        if (response.ok) {
+          const data = await response.json();
+          if (data.stats) setStats(data.stats);
+          if (data.activities) setActivities(data.activities);
+          if (data.manager_name) {
+            setManagerInfo({
+              id: resolvedManagerId,
+              name: data.manager_name,
+              siteName: data.site_name || 'Highland Quarry',
+              managedAssets: data.stats?.totalAssets || 0,
+              operators: data.stats?.operatorsOnDuty || 0,
+              reportsGenerated: 312
+            });
+          }
+        }
+      } catch (err) {
+        console.warn('Failed to load dashboard from backend, using mock:', err);
+      } finally {
+        setLoading(false);
       }
-    };
-    
-    fetchActivities();
-    const interval = setInterval(fetchActivities, 30000);
-    return () => clearInterval(interval);
-  }, []);
+    }
+    fetchDashboard();
+  }, [managerId]);
 
   return (
     <Screen>
       <ManagerShell active="dashboard">
         <ScrollView contentContainerStyle={styles.content} showsVerticalScrollIndicator={false}>
           <AppHeader
-            title={`Welcome, ${CURRENT_MANAGER.name.split(' ')[0]}`}
-            subtitle={`${CURRENT_MANAGER.siteName} · Site Manager`}
+            title={`Welcome, ${managerInfo.name.split(' ')[0]}`}
+            subtitle={`${managerInfo.siteName} · Site Manager`}
             onSearch={() => router.push('/(manager)/assets')}
-            onBell={() => {}}
-            badge={DASHBOARD_STATS.safetyAlerts}
+            onBell={() => { }}
+            badge={stats.safetyAlerts}
           />
           <AlertBanner role="manager" />
 
           {/* Hero KPIs - first row */}
           <View style={styles.section}>
             <View style={styles.kpiRow}>
-              <KpiCard Icon={Boxes} label="Total Assets" value={DASHBOARD_STATS.totalAssets} accent={PALETTE.catYellow} big />
-              <KpiCard Icon={Activity} label="Operations" value={DASHBOARD_STATS.runningOperations} accent={PALETTE.info} big />
+              <KpiCard Icon={Boxes} label="Total Assets" value={stats.totalAssets} accent={PALETTE.catYellow} big />
+              <KpiCard Icon={Activity} label="Operations" value={stats.runningOperations} accent={PALETTE.info} big />
             </View>
           </View>
 
@@ -102,7 +109,7 @@ export default function ManagerDashboard() {
           <View style={styles.section}>
             <SectionLabel title="Executive Summary" />
             <View style={styles.grid}>
-              {SUMMARY.slice(2).map((s) => (
+              {SUMMARY(stats).slice(2).map((s) => (
                 <SummaryTile key={s.label} {...s} />
               ))}
             </View>
@@ -114,7 +121,7 @@ export default function ManagerDashboard() {
               <HighlightCard
                 Icon={ShieldAlert}
                 label="Safety Alerts"
-                value={DASHBOARD_STATS.safetyAlerts}
+                value={stats.safetyAlerts}
                 detail="Requires immediate attention"
                 accent={PALETTE.error}
                 onPress={() => router.push('/(manager)/operations')}
@@ -122,7 +129,7 @@ export default function ManagerDashboard() {
               <HighlightCard
                 Icon={Wrench}
                 label="Maintenance Due"
-                value={DASHBOARD_STATS.maintenanceDue}
+                value={stats.maintenanceDue}
                 detail="Scheduled this week"
                 accent={PALETTE.warning}
                 onPress={() => router.push('/(manager)/assets')}
@@ -134,28 +141,22 @@ export default function ManagerDashboard() {
           <View style={[styles.section, { marginBottom: SPACING.xxxl }]}>
             <SectionLabel title="Recent Activity" />
             <Card style={styles.timelineCard}>
-              {activities.length === 0 ? (
-                <View style={{ padding: SPACING.lg, alignItems: 'center' }}>
-                  <Text style={{ fontFamily: FONT.medium, color: PALETTE.textSecondary }}>No recent activity.</Text>
-                </View>
-              ) : (
-                activities.map((a, i) => {
-                  const cfg = ACTIVITY_ICONS[a.type] || ACTIVITY_ICONS['assigned'];
-                  const isLast = i === activities.length - 1;
-                  return (
-                    <View key={a.id} style={[styles.timelineItem, !isLast && styles.timelineItemBorder]}>
-                      <View style={[styles.timelineIcon, { backgroundColor: cfg.accent + '22', borderColor: cfg.accent + '44' }]}>
-                        <cfg.Icon size={16} color={cfg.accent} strokeWidth={2.2} />
-                      </View>
-                      <View style={{ flex: 1 }}>
-                        <Text style={styles.timelineTitle}>{a.title}</Text>
-                        <Text style={styles.timelineDetail} numberOfLines={1}>{a.detail}</Text>
-                      </View>
-                      <Text style={styles.timelineTime}>{a.timestamp}</Text>
+              {activities.map((a, i) => {
+                const cfg = ACTIVITY_ICONS[a.type] || ACTIVITY_ICONS.assigned;
+                const isLast = i === activities.length - 1;
+                return (
+                  <View key={a.id} style={[styles.timelineItem, !isLast && styles.timelineItemBorder]}>
+                    <View style={[styles.timelineIcon, { backgroundColor: cfg.accent + '22', borderColor: cfg.accent + '44' }]}>
+                      <cfg.Icon size={16} color={cfg.accent} strokeWidth={2.2} />
                     </View>
-                  );
-                })
-              )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={styles.timelineTitle}>{a.title}</Text>
+                      <Text style={styles.timelineDetail} numberOfLines={1}>{a.detail}</Text>
+                    </View>
+                    <Text style={styles.timelineTime}>{a.timestamp}</Text>
+                  </View>
+                );
+              })}
             </Card>
           </View>
         </ScrollView>

@@ -18,7 +18,7 @@ class Site(Base):
     manager_id = Column(String) # From Mongo
     status = Column(String, default="active")
     
-    status = Column(String, default="active")
+    assignments = relationship("Assignment", back_populates="site")
 
 class Asset(Base):
     __tablename__ = "assets"
@@ -36,12 +36,12 @@ class Asset(Base):
     current_status = Column(String, default="available") # rented, available, maintenance
     total_engine_hours = Column(Float, default=0.0)
     fuel_capacity = Column(Float)
+    max_payload_tons = Column(Float, nullable=True)
     last_service_date = Column(Date)
     next_service_due = Column(Date)
     image_url = Column(String)
-    assigned_site_manager = Column(String)
-    total_runtime = Column(Float)
-    max_payload_tons = Column(Float)
+    assigned_site_manager = Column(String, nullable=True)
+    total_runtime = Column(Float, default=16.0) # Maximum runtime allowed per 24 hours
 
     rentals = relationship("Rental", back_populates="asset")
     assignments = relationship("Assignment", back_populates="asset")
@@ -66,7 +66,7 @@ class Rental(Base):
     
     rental_id = Column(String, primary_key=True, default=generate_uuid)
     asset_id = Column(String, ForeignKey("assets.asset_id"))
-    assigned_operator = Column(String) # Mongo operator_id
+    assigned_site_manager = Column(String) # Mongo site_manager user_id
     check_in_time = Column(DateTime)
     check_out_time = Column(DateTime, nullable=True)
     expected_return = Column(DateTime)
@@ -83,18 +83,18 @@ class Assignment(Base):
     asset_id = Column(String, ForeignKey("assets.asset_id"))
     operator_id = Column(String) # Mongo ID
     manager_id = Column(String) # Mongo ID
+    site_id = Column(String, ForeignKey("sites.site_id"))
     job_title = Column(String)
     job_description = Column(Text)
     start_time = Column(DateTime, nullable=False)
     end_time = Column(DateTime, nullable=False)
     assignment_status = Column(String, default="scheduled") # scheduled, active, completed, cancelled
-    importance = Column(String)
-    priority = Column(Boolean)
-    site_id = Column(String, ForeignKey("sites.site_id"))
-    capacity_required = Column(Float)
+    capacity_required = Column(Float, nullable=True)
+    importance = Column(String, default="medium") # high, medium, low
+    priority = Column(Boolean, default=False)
 
     asset = relationship("Asset", back_populates="assignments")
-    site = relationship("Site")
+    site = relationship("Site", back_populates="assignments")
 
 class QRScanLog(Base):
     __tablename__ = "qr_scan_logs"
@@ -118,3 +118,41 @@ class MaintenanceLog(Base):
     remarks = Column(Text, nullable=True)
 
     asset = relationship("Asset", back_populates="maintenance_logs")
+
+class AssignmentQueue(Base):
+    __tablename__ = "assignments_queue"
+    
+    queue_id = Column(String, primary_key=True, default=generate_uuid)
+    manager_id = Column(String, nullable=False)
+    equipment_type = Column(String, nullable=False)
+    job_title = Column(String, nullable=False)
+    job_description = Column(Text, nullable=True)
+    start_time = Column(DateTime, nullable=False)
+    end_time = Column(DateTime, nullable=False)
+    total_hours = Column(Float, nullable=False)
+    capacity_required = Column(Float, nullable=True)
+    importance = Column(String, default="medium")
+    priority = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+
+class InterruptedAssignment(Base):
+    __tablename__ = "interrupted_assignments"
+    
+    interrupt_id = Column(String, primary_key=True, default=generate_uuid)
+    assignment_id = Column(String, nullable=False)
+    asset_id = Column(String, ForeignKey("assets.asset_id"), nullable=False)
+    operator_id = Column(String, nullable=False)
+    manager_id = Column(String, nullable=False)
+    job_title = Column(String, nullable=False)
+    job_description = Column(Text, nullable=True)
+    original_start_time = Column(DateTime, nullable=False)
+    original_end_time = Column(DateTime, nullable=False)
+    interrupted_at = Column(DateTime, nullable=False, default=func.now())
+    interrupt_reason = Column(String, nullable=False) # 'fuel_outage', 'engine_fault', 'malfunction', 'critical_sensor'
+    interrupt_detail = Column(Text, nullable=True)
+    status = Column(String, default="pending") # 'pending', 'resumed', 'cancelled'
+    importance = Column(String, default="medium")
+    priority = Column(Boolean, default=False)
+    created_at = Column(DateTime, server_default=func.now())
+    
+    asset = relationship("Asset")
